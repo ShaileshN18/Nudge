@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, use } from "react";
+import React, { useEffect, useState, useCallback, use } from "react";
 import Link from "next/link";
 import {
   Code2,
@@ -10,7 +10,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ChevronRight,
-  FolderTree,
+  FolderTree as FolderTreeIcon,
   FileCode,
   Sparkles,
   RefreshCw,
@@ -21,6 +21,11 @@ import {
   Layers,
   ArrowRight,
 } from "lucide-react";
+import { mountProject } from "@/lib/webcontainer";
+import FileTree from "@/components/FileTree";
+import CodeEditor, { type OpenTab } from "@/components/CodeEditor";
+
+// ─── Interfaces ──────────────────────────────────────────────────────
 
 interface Task {
   _id?: string;
@@ -50,6 +55,8 @@ interface ProjectData {
   files: ProjectFile[];
 }
 
+// ─── Component ──────────────────────────────────────────────────────
+
 export default function ProjectWorkspace({
   params,
 }: {
@@ -60,17 +67,22 @@ export default function ProjectWorkspace({
 
   const [project, setProject] = useState<ProjectData | null>(null);
   const [currentTaskIndex, setCurrentTaskIndex] = useState(0);
-  const [files, setFiles] = useState<ProjectFile[]>([]);
-  const [activeFilePath, setActiveFilePath] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
   const [taskCompleted, setTaskCompleted] = useState<boolean>(false);
-  const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const [evalResults, setEvalResults] = useState<{
     passed: boolean;
     criteriaStatus: { title: string; passed: boolean }[];
   } | null>(null);
+
+  // Editor state
+  const [activePath, setActivePath] = useState<string>("");
+  const [openTabs, setOpenTabs] = useState<OpenTab[]>([]);
+  const [treeRefreshKey, setTreeRefreshKey] = useState(0);
+
+  // ── Load project + mount to WebContainer ──────────────────────────
 
   useEffect(() => {
     async function loadProject() {
@@ -80,15 +92,26 @@ export default function ProjectWorkspace({
         if (json.success && json.data) {
           setProject(json.data);
           const initialFiles = json.data.files || [];
-          setFiles(initialFiles);
-          if (initialFiles.length > 0) {
-            setActiveFilePath(initialFiles[0].path);
+
+          // Mount to WebContainer
+          await mountProject(initialFiles);
+          setMounted(true);
+          setTreeRefreshKey((k) => k + 1);
+
+          // Open the first editable file
+          const firstEditable = initialFiles.find(
+            (f: ProjectFile) => f.visible !== false && f.editable !== false
+          );
+          if (firstEditable) {
+            setActivePath(firstEditable.path);
+            setOpenTabs([{ path: firstEditable.path, dirty: false }]);
           }
+
           setTerminalLogs([
             `⚡ Project initialized: ${json.data.title}`,
-            `📂 Loaded ${initialFiles.length} project file(s) into workspace.`,
+            `📂 Mounted ${initialFiles.length} file(s) into WebContainer.`,
             `🎯 Ready for Task 1: ${json.data.tasks?.[0]?.title || "Task 1"}`,
-            `💡 Write code in the editor and click 'Run & Evaluate' to test your solution.`,
+            `💡 Edit files in the editor. Ctrl+S saves to WebContainer.`,
           ]);
         }
       } catch (err: any) {
@@ -104,23 +127,41 @@ export default function ProjectWorkspace({
     loadProject();
   }, [slug]);
 
+  // ── File selection (from FileTree) ────────────────────────────────
+
+  const handleSelectFile = useCallback((path: string) => {
+    setActivePath(path);
+    setOpenTabs((prev) => {
+      if (prev.some((t) => t.path === path)) return prev;
+      return [...prev, { path, dirty: false }];
+    });
+  }, []);
+
+  // ── Tab management ────────────────────────────────────────────────
+
+  const handleSelectTab = useCallback((path: string) => {
+    setActivePath(path);
+  }, []);
+
+  const handleCloseTab = useCallback(
+    (path: string) => {
+      setOpenTabs((prev) => {
+        const next = prev.filter((t) => t.path !== path);
+        // If we closed the active tab, switch to the last remaining one
+        if (path === activePath && next.length > 0) {
+          setActivePath(next[next.length - 1].path);
+        } else if (next.length === 0) {
+          setActivePath("");
+        }
+        return next;
+      });
+    },
+    [activePath]
+  );
+
+  // ── Task logic (kept from original) ───────────────────────────────
+
   const currentTask = project?.tasks?.[currentTaskIndex];
-  const activeFile = files.find((f) => f.path === activeFilePath) || files[0];
-
-  const handleCodeChange = (newContent: string) => {
-    setFiles((prev) =>
-      prev.map((f) => (f.path === activeFilePath ? { ...f, content: newContent } : f))
-    );
-  };
-
-  const handleSaveCode = () => {
-    setSavedSuccess(true);
-    setTerminalLogs((prev) => [
-      ...prev,
-      `💾 Saved ${activeFilePath} (${new Date().toLocaleTimeString()})`,
-    ]);
-    setTimeout(() => setSavedSuccess(false), 2000);
-  };
 
   const handleRunEvaluation = async () => {
     if (!currentTask) return;
@@ -131,7 +172,6 @@ export default function ProjectWorkspace({
       `🚀 [TEST RUN] Executing evaluation for Task ${currentTask.order}: "${currentTask.title}"...`,
     ]);
 
-    // Simulate criteria evaluations
     const criteria = currentTask.evaluationCriteria || [
       "Target file exists and contains valid syntax",
       "Function logic implements required behavior",
@@ -155,7 +195,6 @@ export default function ProjectWorkspace({
         `📦 Recording attempt to MongoDB database...`,
       ]);
 
-      // Record to MongoDB
       try {
         await fetch("/api/tasks/attempt", {
           method: "POST",
@@ -190,6 +229,8 @@ export default function ProjectWorkspace({
     ]);
   };
 
+  // ── Loading / Error states ────────────────────────────────────────
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#090d16] text-white flex flex-col items-center justify-center space-y-4">
@@ -214,10 +255,12 @@ export default function ProjectWorkspace({
     );
   }
 
+  // ── Main workspace layout ─────────────────────────────────────────
+
   return (
     <div className="h-screen flex flex-col bg-[#090d16] text-slate-100 overflow-hidden font-sans">
       {/* Top Navbar */}
-      <header className="h-14 bg-[#0d1322] border-b border-slate-800/90 px-4 flex items-center justify-between z-20 shrink-0">
+      <header className="h-12 bg-[#0d1322] border-b border-slate-800/90 px-4 flex items-center justify-between z-20 shrink-0">
         <div className="flex items-center gap-4">
           <Link
             href="/"
@@ -262,23 +305,6 @@ export default function ProjectWorkspace({
         {/* Action Buttons */}
         <div className="flex items-center gap-2.5">
           <button
-            onClick={handleSaveCode}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 transition-colors border border-slate-700"
-          >
-            {savedSuccess ? (
-              <>
-                <Check className="h-3.5 w-3.5 text-emerald-400" />
-                <span className="text-emerald-400">Saved</span>
-              </>
-            ) : (
-              <>
-                <Save className="h-3.5 w-3.5 text-slate-400" />
-                <span>Save</span>
-              </>
-            )}
-          </button>
-
-          <button
             onClick={handleRunEvaluation}
             disabled={evaluating}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 transition-all cursor-pointer disabled:opacity-50"
@@ -301,9 +327,9 @@ export default function ProjectWorkspace({
       {/* Main Split Layout */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Panel: Task Guidance & Instructions */}
-        <div className="w-80 lg:w-96 bg-[#0c1220] border-r border-slate-800/80 flex flex-col shrink-0 overflow-y-auto">
+        <div className="w-72 lg:w-80 bg-[#0c1220] border-r border-slate-800/80 flex flex-col shrink-0 overflow-y-auto">
           {currentTask && (
-            <div className="p-5 space-y-6">
+            <div className="p-5 space-y-5">
               {/* Task Header */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -314,11 +340,11 @@ export default function ProjectWorkspace({
                     Step by Step
                   </span>
                 </div>
-                <h2 className="text-lg font-bold text-white leading-snug">{currentTask.title}</h2>
+                <h2 className="text-base font-bold text-white leading-snug">{currentTask.title}</h2>
               </div>
 
               {/* Goal Card */}
-              <div className="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/20 space-y-1.5">
+              <div className="p-3 rounded-xl bg-indigo-950/30 border border-indigo-500/20 space-y-1.5">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-300">
                   <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
                   <span>Objective Goal</span>
@@ -391,87 +417,68 @@ export default function ProjectWorkspace({
           )}
         </div>
 
-        {/* Center/Right Panel: Code Editor & Terminal Output */}
-        <div className="flex-1 flex flex-col bg-[#090d16] overflow-hidden">
-          {/* File Tabs Bar */}
-          <div className="h-10 bg-[#0c1220] border-b border-slate-800 flex items-center px-2 gap-1 overflow-x-auto shrink-0">
-            {files.map((file) => {
-              const isActive = file.path === activeFilePath;
-              return (
-                <button
-                  key={file.path}
-                  onClick={() => setActiveFilePath(file.path)}
-                  className={`flex items-center gap-2 px-3 py-1.5 text-xs font-mono rounded-t-md transition-all ${
-                    isActive
-                      ? "bg-[#090d16] text-indigo-300 border-t-2 border-indigo-500 font-semibold"
-                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-                  }`}
-                >
-                  <FileCode className="h-3.5 w-3.5 text-indigo-400" />
-                  <span>{file.path.split("/").pop()}</span>
-                </button>
-              );
-            })}
+        {/* File Tree Sidebar */}
+        <div className="w-56 bg-[#181d2a] border-r border-slate-800/60 shrink-0 overflow-hidden">
+          {mounted ? (
+            <FileTree
+              activePath={activePath}
+              onSelectFile={handleSelectFile}
+              refreshKey={treeRefreshKey}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full text-xs text-slate-500">
+              <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+              Mounting…
+            </div>
+          )}
+        </div>
+
+        {/* Center Panel: Code Editor + Terminal */}
+        <div className="flex-1 flex flex-col bg-[#1e1e1e] overflow-hidden">
+          {/* Monaco Editor with tabs */}
+          <div className="flex-1 overflow-hidden">
+            <CodeEditor
+              activePath={activePath}
+              tabs={openTabs}
+              onSelectTab={handleSelectTab}
+              onCloseTab={handleCloseTab}
+            />
           </div>
 
-          {/* Interactive Code Editor Area */}
-          <div className="flex-1 flex flex-col bg-[#090d16] relative overflow-hidden">
-            <div className="flex-1 relative font-mono text-xs flex">
-              {/* Line Numbers Column */}
-              <div className="w-12 bg-[#0c1220]/50 text-slate-600 py-3 pr-2 text-right select-none font-mono text-xs border-r border-slate-800/60 leading-6 shrink-0">
-                {Array.from({
-                  length: Math.max(25, (activeFile?.content || "").split("\n").length),
-                }).map((_, i) => (
-                  <div key={i}>{i + 1}</div>
-                ))}
+          {/* Bottom Panel: Terminal / Output Console */}
+          <div className="h-40 bg-[#080b12] border-t border-slate-800/90 flex flex-col shrink-0">
+            <div className="h-7 bg-[#0c1220] border-b border-slate-800/70 px-3 flex items-center justify-between text-[11px] font-mono text-slate-400">
+              <div className="flex items-center gap-2">
+                <Terminal className="h-3 w-3 text-indigo-400" />
+                <span>Output</span>
               </div>
-
-              {/* Textarea Code Editor */}
-              <textarea
-                value={activeFile?.content || ""}
-                onChange={(e) => handleCodeChange(e.target.value)}
-                className="flex-1 bg-transparent text-slate-200 p-3 leading-6 outline-none resize-none font-mono text-xs selection:bg-indigo-600/40"
-                spellCheck={false}
-                autoCapitalize="off"
-                autoComplete="off"
-              />
+              <button
+                onClick={() => setTerminalLogs([])}
+                className="text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                Clear
+              </button>
             </div>
 
-            {/* Bottom Panel: Interactive Terminal / Output Console */}
-            <div className="h-44 bg-[#080b12] border-t border-slate-800/90 flex flex-col shrink-0">
-              <div className="h-7 bg-[#0c1220] border-b border-slate-800/70 px-3 flex items-center justify-between text-[11px] font-mono text-slate-400">
-                <div className="flex items-center gap-2">
-                  <Terminal className="h-3 w-3 text-indigo-400" />
-                  <span>Execution & Test Logs</span>
-                </div>
-                <button
-                  onClick={() => setTerminalLogs([])}
-                  className="text-slate-500 hover:text-slate-300 transition-colors"
+            <div className="flex-1 p-3 overflow-y-auto font-mono text-xs text-slate-300 space-y-1">
+              {terminalLogs.map((log, i) => (
+                <div
+                  key={i}
+                  className={`${
+                    log.includes("✔")
+                      ? "text-emerald-400 font-semibold"
+                      : log.includes("❌")
+                      ? "text-rose-400 font-semibold"
+                      : log.includes("🎉")
+                      ? "text-amber-300 font-bold"
+                      : log.includes("🚀")
+                      ? "text-indigo-300 font-semibold"
+                      : "text-slate-300"
+                  }`}
                 >
-                  Clear
-                </button>
-              </div>
-
-              <div className="flex-1 p-3 overflow-y-auto font-mono text-xs text-slate-300 space-y-1">
-                {terminalLogs.map((log, i) => (
-                  <div
-                    key={i}
-                    className={`${
-                      log.includes("✔")
-                        ? "text-emerald-400 font-semibold"
-                        : log.includes("❌")
-                        ? "text-rose-400 font-semibold"
-                        : log.includes("🎉")
-                        ? "text-amber-300 font-bold"
-                        : log.includes("🚀")
-                        ? "text-indigo-300 font-semibold"
-                        : "text-slate-300"
-                    }`}
-                  >
-                    {log}
-                  </div>
-                ))}
-              </div>
+                  {log}
+                </div>
+              ))}
             </div>
           </div>
         </div>

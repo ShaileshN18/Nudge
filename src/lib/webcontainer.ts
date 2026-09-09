@@ -222,3 +222,34 @@ export async function startDevServer(options: DevServerOptions = {}): Promise<{
 
   return { process, urlPromise };
 }
+
+export interface DirEntry {
+  name: string;
+  isDirectory: boolean;
+}
+
+/**
+ * Lists the contents of a directory in the WebContainer filesystem.
+ * Returns an array of entries with name and type (file vs directory).
+ */
+export async function listDirectory(dirPath: string): Promise<DirEntry[]> {
+  const webcontainer = await getWebContainer();
+  const cleanPath = dirPath.replace(/^\/+/, "") || ".";
+  const entries = await webcontainer.fs.readdir(cleanPath, {
+    withFileTypes: true,
+  });
+  return entries.map((entry) => ({
+    name: typeof entry === "string" ? entry : entry.name,
+    isDirectory: typeof entry === "string" ? false : entry.isDirectory(),
+  }));
+}
+
+/**
+ * Creates a directory in the WebContainer filesystem.
+ * Automatically creates parent directories if they don't exist.
+ */
+export async function createDirectory(dirPath: string): Promise<void> {
+  const webcontainer = await getWebContainer();
+  const cleanPath = dirPath.replace(/^\/+/, "");
+  await webcontainer.fs.mkdir(cleanPath, { recursive: true });
+}
