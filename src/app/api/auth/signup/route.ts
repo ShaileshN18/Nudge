@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import connectToDatabase from "@/lib/db";
-import User from "@/models/User";
+import User from "@/lib/models/User";
 import { hashPassword, signToken, authCookieOptions, AUTH_COOKIE_NAME } from "@/lib/auth";
 
 export async function POST(request: Request) {

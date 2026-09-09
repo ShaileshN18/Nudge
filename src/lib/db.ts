@@ -21,9 +21,9 @@ export function getCleanMongoUri(): string {
 
   // Detect unconfigured placeholder credentials in URI
   const isPlaceholder =
-    uri.includes("<username>") ||
-    uri.includes("<password>") ||
-    uri.includes("<cluster>");
+    uri.includes("username") ||
+    uri.includes("password") ||
+    uri.includes("cluster");
 
   if (isPlaceholder || !uri) {
     // If invalid placeholder or missing, fallback to local MongoDB instance
