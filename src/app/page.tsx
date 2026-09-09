@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Code2,
   Terminal,
@@ -20,9 +21,11 @@ import {
   Check,
   Play,
   X,
+  User as UserIcon,
+  LogOut,
 } from "lucide-react";
 
-interface Project {
+interface ProjectItem {
   _id: string;
   slug: string;
   title: string;
@@ -31,6 +34,12 @@ interface Project {
   difficulty: "beginner" | "intermediate" | "advanced";
   tasksCount?: number;
   tasks?: any[];
+}
+
+interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
 }
 
 interface DbStatusResponse {
@@ -46,9 +55,9 @@ interface DbStatusResponse {
   suggestion?: string;
 }
 
-const fallbackProjects: Project[] = [
+const fallbackProjects: ProjectItem[] = [
   {
-    _id: "1",
+    _id: "build-express-mongodb-auth",
     slug: "build-express-mongodb-auth",
     title: "Build JWT Auth with Express & Mongoose",
     description:
@@ -77,11 +86,22 @@ const fallbackProjects: Project[] = [
     difficulty: "intermediate",
     tasksCount: 1,
   },
+  {
+    _id: "react-task-board",
+    slug: "react-task-board",
+    title: "Interactive React Task Kanban Board",
+    description: "Build an interactive Kanban board with drag-and-drop task columns, state management, and real-time status updates.",
+    track: "frontend",
+    difficulty: "intermediate",
+    tasksCount: 1,
+  },
 ];
 
 export default function Home() {
+  const router = useRouter();
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [dbStatus, setDbStatus] = useState<DbStatusResponse | null>(null);
-  const [projects, setProjects] = useState<Project[]>(fallbackProjects);
+  const [projects, setProjects] = useState<ProjectItem[]>(fallbackProjects);
   const [selectedTrack, setSelectedTrack] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -119,8 +139,28 @@ export default function Home() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      setCurrentUser(null);
+      router.refresh();
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
+  };
+
   useEffect(() => {
     fetchHealthAndProjects();
+
+    // Check user auth session
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.user) {
+          setCurrentUser(data.user);
+        }
+      })
+      .catch((err) => console.error("Auth check error:", err));
   }, []);
 
   const filteredProjects = projects.filter((p) =>
@@ -189,6 +229,39 @@ export default function Home() {
             >
               <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin text-indigo-400" : ""}`} />
             </button>
+
+            {/* Auth Buttons */}
+            {currentUser ? (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/50 text-xs text-slate-200">
+                  <UserIcon className="h-3.5 w-3.5 text-indigo-400" />
+                  <span className="font-medium">{currentUser.name}</span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-rose-400 text-xs transition-colors"
+                  title="Log out"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  <span>Logout</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/login"
+                  className="px-3.5 py-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-medium transition-colors"
+                >
+                  Log In
+                </Link>
+                <Link
+                  href="/signup"
+                  className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all shadow-sm shadow-indigo-600/30"
+                >
+                  Sign Up
+                </Link>
+              </div>
+            )}
 
             <Link
               href={`/project/${firstProjectSlug}`}
@@ -278,7 +351,7 @@ export default function Home() {
             {[
               {
                 title: "User Model",
-                schema: "src/lib/models/User.ts",
+                schema: "src/models/User.ts",
                 desc: "User profiles, emails, and password hashes.",
                 icon: ShieldCheck,
                 color: "text-blue-400",
@@ -286,7 +359,7 @@ export default function Home() {
               },
               {
                 title: "Project Model",
-                schema: "src/lib/models/Project.ts",
+                schema: "src/models/Project.ts",
                 desc: "Guided tracks, embedded tasks & file templates.",
                 icon: FolderTree,
                 color: "text-indigo-400",
@@ -294,7 +367,7 @@ export default function Home() {
               },
               {
                 title: "UserProject Model",
-                schema: "src/lib/models/UserProject.ts",
+                schema: "src/models/UserProject.ts",
                 desc: "User code state and task completion progress.",
                 icon: FileCode,
                 color: "text-cyan-400",
@@ -302,7 +375,7 @@ export default function Home() {
               },
               {
                 title: "TaskAttempt Model",
-                schema: "src/lib/models/TaskAttempt.ts",
+                schema: "src/models/TaskAttempt.ts",
                 desc: "Task pass/fail statuses and feedback logs.",
                 icon: Terminal,
                 color: "text-emerald-400",
@@ -334,7 +407,7 @@ export default function Home() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-bold text-white">Project Catalog</h2>
-              <p className="text-sm text-slate-400">Select a learning track to begin building.</p>
+              <p className="text-sm text-slate-400">Select a learning track to open the interactive IDE.</p>
             </div>
 
             {/* Track Filter Buttons */}
@@ -355,7 +428,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredProjects.map((project) => (
               <div
                 key={project._id}
@@ -384,13 +457,13 @@ export default function Home() {
                 <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
                   <span className="flex items-center gap-1.5">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    {project.tasksCount || 3} Guided Tasks
+                    {project.tasks?.length || project.tasksCount || 0} Guided Tasks
                   </span>
                   <Link
-                    href={`/project/${project.slug}`}
+                    href={`/projects/${project._id || project.slug}`}
                     className="flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 font-semibold group-hover:translate-x-1 transition-all"
                   >
-                    <span>Start Project</span>
+                    <span>Open Project</span>
                     <ArrowRight className="h-3.5 w-3.5" />
                   </Link>
                 </div>
