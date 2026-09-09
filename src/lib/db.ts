@@ -13,21 +13,19 @@ declare global {
 let cached = global.mongooseCache;
 
 if (!cached) {
-  cached = global.mongooseCache = { conn: null, promise: null };
+  cached = global.mongooseCache = {
+    conn: null,
+    promise: null,
+  };
 }
 
 export function getCleanMongoUri(): string {
-  const uri = process.env.MONGODB_URI || "";
+  const uri = process.env.MONGODB_URI;
 
-  // Detect unconfigured placeholder credentials in URI
-  const isPlaceholder =
-    uri.includes("username") ||
-    uri.includes("password") ||
-    uri.includes("cluster");
-
-  if (isPlaceholder || !uri) {
-    // If invalid placeholder or missing, fallback to local MongoDB instance
-    return "mongodb://127.0.0.1:27017/nudge";
+  if (!uri) {
+    throw new Error(
+      "MONGODB_URI is not defined. Check your .env file."
+    );
   }
 
   return uri;
@@ -43,20 +41,29 @@ export async function connectToDatabase(): Promise<typeof mongoose> {
   if (!cached!.promise || mongoose.connection.readyState === 0) {
     const opts: mongoose.ConnectOptions = {
       bufferCommands: false,
-      serverSelectionTimeoutMS: 5000, // 5s timeout instead of 30s
+      serverSelectionTimeoutMS: 5000,
     };
 
-    cached!.promise = mongoose.connect(uri, opts).then((mongooseInstance) => {
-      return mongooseInstance;
-    });
+    cached!.promise = mongoose
+      .connect(uri, opts)
+      .then((mongooseInstance) => {
+        console.log("MongoDB connected");
+        console.log("MongoDB host:", mongoose.connection.host);
+        console.log("MongoDB database:", mongoose.connection.name);
+
+        return mongooseInstance;
+      });
   }
 
   try {
     cached!.conn = await cached!.promise;
-  } catch (e) {
+  } catch (error) {
     cached!.promise = null;
     cached!.conn = null;
-    throw e;
+
+    console.error("MongoDB connection failed:", error);
+
+    throw error;
   }
 
   return cached!.conn;
@@ -65,8 +72,10 @@ export async function connectToDatabase(): Promise<typeof mongoose> {
 export function getDatabaseInfo() {
   const isConnected = mongoose.connection.readyState === 1;
   const host = mongoose.connection.host || "unknown";
-  const isAtlas = host.includes("mongodb.net") || host.includes("atlas");
-  const dbName = mongoose.connection.name || "nudge";
+  const dbName = mongoose.connection.name || "unknown";
+
+  const isAtlas =
+    host.includes("mongodb.net") || host.includes("atlas");
 
   return {
     isConnected,
