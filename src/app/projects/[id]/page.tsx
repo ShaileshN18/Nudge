@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, use } from "react";
+import React, { useEffect, useState, useCallback, use } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Play, Terminal as TerminalIcon } from "lucide-react";
-import FileTree, { treenode } from "@/components/FileTree";
-import CodeEditor from "@/components/CodeEditor";
-import { mountProject, writeProjectFile, readProjectFile } from "@/lib/webcontainer";
+import { ArrowLeft, Loader2, RefreshCw } from "lucide-react";
+import FileTree from "@/components/FileTree";
+import CodeEditor, { type OpenTab } from "@/components/CodeEditor";
+import { mountProject } from "@/lib/webcontainer";
 
 interface TaskItem {
   _id?: string;
@@ -15,6 +15,13 @@ interface TaskItem {
   goal: string;
   targetFiles?: string[];
   evaluationCriteria?: string[];
+}
+
+interface FileItem {
+  path: string;
+  content: string;
+  visible?: boolean;
+  editable?: boolean;
 }
 
 interface ProjectData {
@@ -37,11 +44,11 @@ export default function ProjectWorkspacePage({
   const projectId = resolvedParams.id;
 
   const [project, setProject] = useState<ProjectData | null>(null);
-  const [files, setFiles] = useState<FileItem[]>([]);
   const [activeFilePath, setActiveFilePath] = useState<string>("");
-  const [activeContent, setActiveContent] = useState<string>("");
+  const [openTabs, setOpenTabs] = useState<OpenTab[]>([]);
   const [isMounting, setIsMounting] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [treeRefreshKey, setTreeRefreshKey] = useState(0);
 
   // Fetch project details and mount into WebContainer
   useEffect(() => {
@@ -63,17 +70,21 @@ export default function ProjectWorkspacePage({
         if (!isSubscribed) return;
 
         setProject(projectData);
-        setFiles(projectData.files || []);
 
-        // Mount ALL files (including hidden/non-editable) into WebContainer filesystem
+        // Mount ALL files into WebContainer filesystem
         if (projectData.files && projectData.files.length > 0) {
           await mountProject(projectData.files);
 
-          // Select first visible file as default active file
-          const firstVisible = projectData.files.find((f) => f.visible !== false) || projectData.files[0];
-          setActiveFilePath(firstVisible.path);
-          setActiveContent(firstVisible.content || "");
+          // Select first visible and editable file as default active file
+          const firstVisible =
+            projectData.files.find((f) => f.visible !== false && f.editable !== false) ||
+            projectData.files[0];
+          if (firstVisible) {
+            setActiveFilePath(firstVisible.path);
+            setOpenTabs([{ path: firstVisible.path, dirty: false }]);
+          }
         }
+        setTreeRefreshKey((k) => k + 1);
       } catch (err: any) {
         console.error("Error initializing project workspace:", err);
         if (isSubscribed) {
@@ -94,35 +105,85 @@ export default function ProjectWorkspacePage({
   }, [projectId]);
 
   // Handle file selection from FileTree
-  const handleSelectFile = async (path: string) => {
+  const handleSelectFile = useCallback((path: string) => {
     setActiveFilePath(path);
-    try {
-      // Read current content from WebContainer filesystem
-      const content = await readProjectFile(path);
-      setActiveContent(content);
-    } catch {
-      // Fallback to initial file state if read fails
-      const fallbackFile = files.find((f) => f.path === path);
-      setActiveContent(fallbackFile?.content || "");
-    }
-  };
+    setOpenTabs((prev) => {
+      if (prev.some((t) => t.path === path)) return prev;
+      return [...prev, { path, dirty: false }];
+    });
+  }, []);
 
-  // Handle file content changes from CodeEditor
-  const handleCodeChange = async (newContent: string) => {
-    setActiveContent(newContent);
+  const handleSelectTab = useCallback((path: string) => {
+    setActiveFilePath(path);
+  }, []);
 
-    // Keep WebContainer filesystem in sync
-    if (activeFilePath) {
-      try {
-        await writeProjectFile(activeFilePath, newContent);
-      } catch (err) {
-        console.error("Error writing to WebContainer:", err);
+  const handleCloseTab = useCallback(
+    (path: string) => {
+      setOpenTabs((prev) => {
+        const next = prev.filter((t) => t.path !== path);
+        if (path === activeFilePath && next.length > 0) {
+          setActiveFilePath(next[next.length - 1].path);
+        } else if (next.length === 0) {
+          setActiveFilePath("");
+        }
+        return next;
+      });
+    },
+    [activeFilePath]
+  );
+
+  const handleDeleteFile = useCallback(
+    (deletedPath: string, isDirectory: boolean) => {
+      setOpenTabs((prev) => {
+        const next = prev.filter((t) => {
+          if (isDirectory) {
+            return !t.path.startsWith(`${deletedPath}/`) && t.path !== deletedPath;
+          }
+          return t.path !== deletedPath;
+        });
+
+        const activeWasDeleted = isDirectory
+          ? activeFilePath.startsWith(`${deletedPath}/`) || activeFilePath === deletedPath
+          : activeFilePath === deletedPath;
+
+        if (activeWasDeleted) {
+          if (next.length > 0) {
+            setActiveFilePath(next[next.length - 1].path);
+          } else {
+            setActiveFilePath("");
+          }
+        }
+        return next;
+      });
+    },
+    [activeFilePath]
+  );
+
+  const handleRenameFile = useCallback(
+    (oldPath: string, newPath: string) => {
+      setOpenTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.path === oldPath) {
+            return { ...tab, path: newPath };
+          }
+          if (tab.path.startsWith(`${oldPath}/`)) {
+            return {
+              ...tab,
+              path: tab.path.replace(`${oldPath}/`, `${newPath}/`),
+            };
+          }
+          return tab;
+        })
+      );
+
+      if (activeFilePath === oldPath) {
+        setActiveFilePath(newPath);
+      } else if (activeFilePath.startsWith(`${oldPath}/`)) {
+        setActiveFilePath(activeFilePath.replace(`${oldPath}/`, `${newPath}/`));
       }
-    }
-  };
-
-  const activeFile = files.find((f) => f.path === activeFilePath);
-  const isEditable = activeFile?.editable !== false;
+    },
+    [activeFilePath]
+  );
 
   if (error) {
     return (
@@ -205,22 +266,31 @@ export default function ProjectWorkspacePage({
           )}
 
           {/* Visible Files Tree */}
-          <div className="flex-1 p-2">
-            <FileTree
-              files={files}
-              activePath={activeFilePath}
-              onSelectFile={handleSelectFile}
-            />
+          <div className="flex-1 overflow-hidden">
+            {!isMounting ? (
+              <FileTree
+                activePath={activeFilePath}
+                onSelectFile={handleSelectFile}
+                onDeleteFile={handleDeleteFile}
+                onRenameFile={handleRenameFile}
+                refreshKey={treeRefreshKey}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-40 text-xs text-slate-500">
+                <RefreshCw className="h-4 w-4 animate-spin mr-2 text-indigo-400" />
+                Mounting files...
+              </div>
+            )}
           </div>
         </div>
 
         {/* Center: Monaco Code Editor */}
         <div className="flex-1 flex flex-col bg-[#1e1e1e] overflow-hidden">
           <CodeEditor
-            path={activeFilePath}
-            value={activeContent}
-            editable={isEditable}
-            onChange={handleCodeChange}
+            activePath={activeFilePath}
+            tabs={openTabs}
+            onSelectTab={handleSelectTab}
+            onCloseTab={handleCloseTab}
           />
         </div>
       </div>
