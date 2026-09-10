@@ -3,7 +3,7 @@
 import React, { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Play, Terminal as TerminalIcon } from "lucide-react";
-import FileTree, { FileItem } from "@/components/FileTree";
+import FileTree, { treenode } from "@/components/FileTree";
 import CodeEditor from "@/components/CodeEditor";
 import { mountProject, writeProjectFile, readProjectFile } from "@/lib/webcontainer";
 
