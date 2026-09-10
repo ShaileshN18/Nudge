@@ -253,3 +253,41 @@ export async function createDirectory(dirPath: string): Promise<void> {
   const cleanPath = dirPath.replace(/^\/+/, "");
   await webcontainer.fs.mkdir(cleanPath, { recursive: true });
 }
+
+/**
+ * Deletes a file or directory from the WebContainer filesystem.
+ */
+export async function deleteEntry(entryPath: string): Promise<void> {
+  const webcontainer = await getWebContainer();
+  const cleanPath = entryPath.replace(/^\/+/, "");
+  if (!cleanPath || cleanPath === ".") return;
+  await webcontainer.fs.rm(cleanPath, { recursive: true, force: true });
+}
+
+/**
+ * Renames or moves a file or directory in the WebContainer filesystem.
+ */
+export async function renameEntry(
+  oldPath: string,
+  newPath: string
+): Promise<void> {
+  const webcontainer = await getWebContainer();
+  const cleanOld = oldPath.replace(/^\/+/, "");
+  const cleanNew = newPath.replace(/^\/+/, "");
+
+  if (!cleanOld || !cleanNew || cleanOld === cleanNew) return;
+
+  const lastSlashIndex = cleanNew.lastIndexOf("/");
+  if (lastSlashIndex !== -1) {
+    const parentDir = cleanNew.slice(0, lastSlashIndex);
+    await webcontainer.fs.mkdir(parentDir, { recursive: true });
+  }
+
+  if (typeof (webcontainer.fs as any).rename === "function") {
+    await (webcontainer.fs as any).rename(cleanOld, cleanNew);
+  } else {
+    const content = await webcontainer.fs.readFile(cleanOld, "utf-8");
+    await webcontainer.fs.writeFile(cleanNew, content);
+    await webcontainer.fs.rm(cleanOld, { recursive: true, force: true });
+  }
+}
