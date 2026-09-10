@@ -25,7 +25,7 @@ export interface TreeNode {
   children?: TreeNode[];
 }
 
-interface FileTreeProps {
+export interface FileTreeProps {
   activePath: string;
   onSelectFile: (path: string) => void;
   /** Increment this value to force a tree refresh from outside */
