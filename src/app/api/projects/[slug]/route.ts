@@ -3,6 +3,263 @@ import connectToDatabase from "@/lib/db";
 import Project from "@/lib/models/Project";
 
 const fallbackProjectsMap: Record<string, any> = {
+  "devblog": {
+    slug: "devblog",
+    title: "DevBlog",
+    description:
+      "Full-stack React and Express blog application with dynamic routes, markdown rendering, and MongoDB.",
+    track: "fullstack",
+    difficulty: "Medium",
+    tasks: [
+      {
+        order: 1,
+        title: "Display a single blog post",
+        description:
+          "Fetch a blog post by its id from the backend and display its title, content[render markdown] and author info",
+        goal: "Fetch and render blog post data by route id param.",
+        targetFiles: [
+          "src/pages/Post.jsx",
+          "server/routes/postRoutes.js",
+          "server/models/Post.js",
+        ],
+        evaluationCriteria: [
+          "Extracts id parameter from route with useParams()",
+          "Calls GET /api/posts/:id with axios/fetch",
+          "Includes [id] in useEffect dependency array to re-fetch on param change",
+          "Renders post title, markdown content, and author metadata",
+        ],
+      },
+      {
+        order: 2,
+        title: "Create and publish new blog post",
+        description:
+          "Implement form validation and POST /api/posts to store new posts in MongoDB.",
+        goal: "Create new posts with title, markdown body, and tags.",
+        targetFiles: ["src/pages/NewPost.jsx", "server/routes/postRoutes.js"],
+        evaluationCriteria: [
+          "Form submission prevents default and validates inputs",
+          "Calls POST /api/posts with JSON payload",
+          "Redirects to newly created post on success",
+        ],
+      },
+    ],
+    files: [
+      {
+        path: "src/pages/Post.jsx",
+        content: `import { useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import axios from 'axios';
+
+export default function Post() {
+  const { id } = useParams();
+  const [post, setPost] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    // Fetch post by id from backend
+    axios.get(\`/api/posts/\${id}\`)
+      .then((res) => {
+        setPost(res.data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError('Post not found');
+        setLoading(false);
+      });
+  }, [id]);
+
+  if (loading) return <div className="text-gray-400">Loading...</div>;
+  if (error) return <div className="text-red-400">{error}</div>;
+  if (!post) return <div className="text-gray-400">Post not found</div>;
+
+  return (
+    <div className="max-w-2xl mx-auto py-8">
+      <h1 className="text-3xl font-bold mb-2">{post.title}</h1>
+      <p className="text-gray-400 mb-6">By {post.author}</p>
+      <div className="prose text-slate-200">
+        {post.content}
+      </div>
+    </div>
+  );
+}
+`,
+        visible: true,
+        editable: true,
+      },
+      {
+        path: "server/routes/postRoutes.js",
+        content: `const express = require('express');
+const router = express.Router();
+const Post = require('../models/Post');
+
+// GET /api/posts/:id
+router.get('/:id', async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    res.json(post);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/posts
+router.post('/', async (req, res) => {
+  try {
+    const { title, content, author } = req.body;
+    const newPost = await Post.create({ title, content, author });
+    res.status(201).json(newPost);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+module.exports = router;
+`,
+        visible: true,
+        editable: true,
+      },
+      {
+        path: "server/models/Post.js",
+        content: `const mongoose = require('mongoose');
+
+const postSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  content: { type: String, required: true },
+  author: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now },
+});
+
+module.exports = mongoose.models.Post || mongoose.model('Post', postSchema);
+`,
+        visible: true,
+        editable: true,
+      },
+      {
+        path: "src/pages/Home.jsx",
+        content: `import React from 'react';
+import { Link } from 'react-router-dom';
+
+export default function Home() {
+  return (
+    <div className="max-w-3xl mx-auto py-8">
+      <h1 className="text-3xl font-bold mb-4">DevBlog Community</h1>
+      <p className="text-slate-400 mb-6">Browse tutorials, engineering stories, and articles.</p>
+    </div>
+  );
+}
+`,
+        visible: true,
+        editable: true,
+      },
+      {
+        path: "src/pages/NewPost.jsx",
+        content: `import React, { useState } from 'react';
+
+export default function NewPost() {
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+
+  return (
+    <div className="max-w-2xl mx-auto py-8">
+      <h2 className="text-2xl font-bold mb-4">Create New Post</h2>
+    </div>
+  );
+}
+`,
+        visible: true,
+        editable: true,
+      },
+      {
+        path: "src/App.jsx",
+        content: `import React from 'react';
+import Post from './pages/Post';
+
+export default function App() {
+  return (
+    <div className="min-h-screen bg-slate-900 text-white p-4">
+      <Post />
+    </div>
+  );
+}
+`,
+        visible: true,
+        editable: true,
+      },
+      {
+        path: "src/main.jsx",
+        content: `import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+`,
+        visible: true,
+        editable: true,
+      },
+      {
+        path: "server/models/User.js",
+        content: `const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+});
+
+module.exports = mongoose.models.User || mongoose.model('User', userSchema);
+`,
+        visible: true,
+        editable: true,
+      },
+      {
+        path: "server/routes/userRoutes.js",
+        content: `const express = require('express');
+const router = express.Router();
+
+router.get('/me', (req, res) => {
+  res.json({ name: 'Developer', role: 'Author' });
+});
+
+module.exports = router;
+`,
+        visible: true,
+        editable: true,
+      },
+      {
+        path: "index.js",
+        content: `const express = require('express');
+const app = express();
+const postRoutes = require('./server/routes/postRoutes');
+
+app.use(express.json());
+app.use('/api/posts', postRoutes);
+
+app.listen(5000, () => {
+  console.log('Server running on http://localhost:5000');
+});
+`,
+        visible: true,
+        editable: true,
+      },
+      {
+        path: ".env",
+        content: `PORT=5000
+NODE_ENV=development
+`,
+        visible: true,
+        editable: true,
+      },
+      {
+        path: "README.md",
+        content: `# DevBlog
+Interactive full-stack blog platform built with Express and React.
+`,
+        visible: true,
+        editable: true,
+      },
+    ],
+  },
   "build-express-mongodb-auth": {
     slug: "build-express-mongodb-auth",
     title: "Build JWT Auth with Express & Mongoose",
@@ -268,36 +525,42 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  let slug = "";
   try {
-    const { slug } = await params;
-    await connectToDatabase();
+    const resolvedParams = await params;
+    slug = resolvedParams.slug;
+  } catch {
+    slug = "";
+  }
 
-    let project = await Project.findOne({ slug });
+  let project = null;
+
+  try {
+    await connectToDatabase();
+    project = await Project.findOne({ slug });
 
     if (!project) {
-      // If not in DB yet, fallback to predefined template
       const fallback = fallbackProjectsMap[slug];
       if (fallback) {
-        // Auto-seed into DB
         project = await Project.create(fallback).catch(() => fallback);
       }
     }
+  } catch (dbError: any) {
+    console.warn(`Database access failed for project ${slug}, checking fallback:`, dbError?.message);
+    project = fallbackProjectsMap[slug] || null;
+  }
 
-    if (!project && !fallbackProjectsMap[slug]) {
-      return NextResponse.json(
-        { success: false, error: "Project not found" },
-        { status: 404 }
-      );
-    }
+  const finalProject = project || fallbackProjectsMap[slug];
 
-    return NextResponse.json({
-      success: true,
-      data: project || fallbackProjectsMap[slug],
-    });
-  } catch (error: any) {
+  if (!finalProject) {
     return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
+      { success: false, error: "Project not found" },
+      { status: 404 }
     );
   }
+
+  return NextResponse.json({
+    success: true,
+    data: finalProject,
+  });
 }

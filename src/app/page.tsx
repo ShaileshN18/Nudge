@@ -57,6 +57,16 @@ interface DbStatusResponse {
 
 const fallbackProjects: ProjectItem[] = [
   {
+    _id: "devblog",
+    slug: "devblog",
+    title: "DevBlog",
+    description:
+      "Full-stack React and Express blog application with dynamic routes, markdown rendering, and MongoDB.",
+    track: "fullstack",
+    difficulty: "intermediate",
+    tasksCount: 18,
+  },
+  {
     _id: "build-express-mongodb-auth",
     slug: "build-express-mongodb-auth",
     title: "Build JWT Auth with Express & Mongoose",

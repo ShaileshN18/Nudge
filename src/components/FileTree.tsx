@@ -84,10 +84,18 @@ function getFileIcon(name: string) {
     case "jsx":
     case "mjs":
     case "cjs":
-      return <FileCode className="h-4 w-4 text-yellow-300 shrink-0" />;
+      return (
+        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-yellow-400/15 text-yellow-300 border border-yellow-500/30 shrink-0 leading-none">
+          JS
+        </span>
+      );
     case "ts":
     case "tsx":
-      return <FileCode className="h-4 w-4 text-cyan-400 shrink-0" />;
+      return (
+        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-cyan-400/15 text-cyan-300 border border-cyan-500/30 shrink-0 leading-none">
+          TS
+        </span>
+      );
     case "css":
     case "scss":
     case "less":
@@ -428,17 +436,21 @@ function TreeNodeRow({
     <div
       onContextMenu={(e) => onContextMenu(e, node)}
       onClick={() => onSelectFile(node.path)}
-      className={`w-full flex items-center justify-between py-[4px] pr-2 text-xs font-mono transition-colors rounded-sm cursor-pointer group ${
+      className={`w-full flex items-center justify-between py-[5px] pr-2 text-xs font-mono transition-all rounded cursor-pointer group ${
         isActive
-          ? "bg-indigo-600/20 text-indigo-200 font-medium"
-          : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+          ? "bg-[#172033] text-white font-medium shadow-sm border border-slate-700/60"
+          : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent"
       }`}
-      style={{ paddingLeft: `${depth * 14 + 22}px` }}
+      style={{ paddingLeft: `${depth * 14 + 20}px` }}
     >
-      <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
+      <div className="flex items-center gap-2 min-w-0 flex-1 truncate">
         {getFileIcon(node.name)}
         <span className="truncate">{node.name}</span>
       </div>
+
+      {isActive && (
+        <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0 ml-1.5 shadow-[0_0_8px_rgba(251,191,36,0.8)]" />
+      )}
 
       {/* Action buttons on hover */}
       <div
