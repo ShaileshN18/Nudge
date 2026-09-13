@@ -10,6 +10,8 @@ import {
   RefreshCw,
   Sparkles,
   Globe,
+  Code,
+  Columns,
 } from "lucide-react";
 
 export interface TaskItem {
@@ -40,6 +42,8 @@ interface TaskHeaderProps {
   isServerRunning?: boolean;
   startingServer?: boolean;
   previewUrl?: string | null;
+  viewMode?: "code" | "split" | "preview";
+  onChangeViewMode?: (mode: "code" | "split" | "preview") => void;
 }
 
 export default function TaskHeader({
@@ -60,6 +64,8 @@ export default function TaskHeader({
   isServerRunning = false,
   startingServer = false,
   previewUrl,
+  viewMode = "code",
+  onChangeViewMode,
 }: TaskHeaderProps) {
   // Extract or fall back target files
   const targetFiles = currentTask.targetFiles && currentTask.targetFiles.length > 0
@@ -169,6 +175,56 @@ export default function TaskHeader({
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
+
+          {onChangeViewMode && (
+            <div className="flex items-center bg-[#131826] border border-slate-800 rounded-lg p-0.5 text-xs">
+              <button
+                onClick={() => onChangeViewMode("code")}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                  viewMode === "code"
+                    ? "bg-slate-800 text-white font-semibold shadow-sm"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                title="Code Editor View"
+              >
+                <Code className="h-3 w-3" />
+                <span>Code</span>
+              </button>
+              <button
+                onClick={() => {
+                  onChangeViewMode("split");
+                  if (!isServerRunning && onStartServer) onStartServer();
+                }}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                  viewMode === "split"
+                    ? "bg-indigo-600 text-white font-semibold shadow-sm"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                title="Side-by-Side Split View"
+              >
+                <Columns className="h-3 w-3" />
+                <span>Split</span>
+              </button>
+              <button
+                onClick={() => {
+                  onChangeViewMode("preview");
+                  if (!isServerRunning && onStartServer) onStartServer();
+                }}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                  viewMode === "preview"
+                    ? "bg-cyan-600 text-white font-semibold shadow-sm"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                title="Full Canvas Live Preview"
+              >
+                <Globe className="h-3 w-3" />
+                <span>Preview</span>
+                {isServerRunning && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                )}
+              </button>
+            </div>
+          )}
 
           {onRunCode && (
             <button

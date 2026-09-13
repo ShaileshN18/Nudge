@@ -27,6 +27,7 @@ import FileTree from "@/components/FileTree";
 import CodeEditor, { type OpenTab } from "@/components/CodeEditor";
 import TaskHeader, { type TaskItem } from "@/components/TaskHeader";
 import AiMentor from "@/components/AiMentor";
+import LivePreviewView from "@/components/LivePreviewView";
 import {
   mountProject,
   spawnProcess,
@@ -76,6 +77,9 @@ export default function CodingEnvironment({
     criteriaStatus: { title: string; passed: boolean }[];
   } | null>(null);
   const [showTaskDetailsModal, setShowTaskDetailsModal] = useState(false);
+
+  // Workspace View Mode: "code" | "split" | "preview"
+  const [workspaceViewMode, setWorkspaceViewMode] = useState<"code" | "split" | "preview">("code");
 
   // Editor & Files state
   const [activeFilePath, setActiveFilePath] = useState<string>("");
@@ -677,19 +681,64 @@ export default function CodingEnvironment({
             isServerRunning={isServerRunning}
             startingServer={startingServer}
             previewUrl={previewUrl}
+            viewMode={workspaceViewMode}
+            onChangeViewMode={setWorkspaceViewMode}
           />
 
-          {/* Middle: Monaco Code Editor */}
-          <div className="flex-1 relative overflow-hidden bg-[#161a26]">
-            <CodeEditor
-              activePath={activeFilePath}
-              tabs={openTabs}
-              onSelectTab={handleSelectTab}
-              onCloseTab={handleCloseTab}
-              onContentChange={handleContentChange}
-              onTriggerAriaNudge={handleAriaPrompt}
-            />
-          </div>
+          {workspaceViewMode === "preview" ? (
+            /* Full Live Preview Canvas View (Not cramped, 100% spacious) */
+            <div className="flex-1 relative overflow-hidden bg-[#07090f] flex flex-col min-h-0">
+              <LivePreviewView
+                previewUrl={previewUrl}
+                serverPort={serverPort}
+                isServerRunning={isServerRunning}
+                startingServer={startingServer}
+                onStartServer={handleStartServer}
+                previewPath={previewPath}
+                onChangePreviewPath={setPreviewPath}
+                isCompact={false}
+              />
+            </div>
+          ) : workspaceViewMode === "split" ? (
+            /* Split View: Code Editor (Left) & Live Preview (Right) */
+            <div className="flex-1 flex min-h-0 divide-x divide-slate-800/90 overflow-hidden">
+              <div className="w-1/2 h-full relative overflow-hidden bg-[#161a26]">
+                <CodeEditor
+                  activePath={activeFilePath}
+                  tabs={openTabs}
+                  onSelectTab={handleSelectTab}
+                  onCloseTab={handleCloseTab}
+                  onContentChange={handleContentChange}
+                  onTriggerAriaNudge={handleAriaPrompt}
+                />
+              </div>
+              <div className="w-1/2 h-full relative overflow-hidden bg-[#07090f] flex flex-col">
+                <LivePreviewView
+                  previewUrl={previewUrl}
+                  serverPort={serverPort}
+                  isServerRunning={isServerRunning}
+                  startingServer={startingServer}
+                  onStartServer={handleStartServer}
+                  previewPath={previewPath}
+                  onChangePreviewPath={setPreviewPath}
+                  isCompact={false}
+                />
+              </div>
+            </div>
+          ) : (
+            /* Code View (Default): Code Editor + Bottom Console Panel */
+            <>
+              {/* Middle: Monaco Code Editor */}
+              <div className="flex-1 relative overflow-hidden bg-[#161a26]">
+                <CodeEditor
+                  activePath={activeFilePath}
+                  tabs={openTabs}
+                  onSelectTab={handleSelectTab}
+                  onCloseTab={handleCloseTab}
+                  onContentChange={handleContentChange}
+                  onTriggerAriaNudge={handleAriaPrompt}
+                />
+              </div>
 
           {/* Bottom: Terminal / Problems / Live Preview Panel */}
           <div
@@ -793,19 +842,19 @@ export default function CodingEnvironment({
                     )}
 
                     {previewUrl && (
-                      <a
-                        href={
-                          (previewUrl || "http://localhost:5000") +
-                          (previewPath === "/" ? "" : previewPath)
-                        }
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        onClick={() => {
+                          const url =
+                            (previewUrl || "http://localhost:5000") +
+                            (previewPath === "/" ? "" : previewPath);
+                          window.open(url, "_blank");
+                        }}
                         className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors cursor-pointer"
                         title="Open in new browser tab"
                       >
                         <ExternalLink className="h-2.5 w-2.5" />
                         <span>Open Tab</span>
-                      </a>
+                      </button>
                     )}
                   </>
                 ) : (
@@ -933,169 +982,22 @@ export default function CodingEnvironment({
               )}
 
               {activeBottomTab === "preview" && (
-                <div className="flex-1 flex flex-col min-h-0 bg-[#07090f] overflow-hidden">
-                  {/* Preview Address Bar */}
-                  <div className="h-9 bg-[#0b0f1a] border-b border-slate-800/70 px-3 flex items-center justify-between gap-2 shrink-0">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      {/* Status Indicator */}
-                      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 shrink-0">
-                        {isServerRunning ? (
-                          <>
-                            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                            <span className="text-[10px] font-mono font-semibold text-emerald-300">
-                              :{serverPort || 5000} ONLINE
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="h-2 w-2 rounded-full bg-slate-500" />
-                            <span className="text-[10px] font-mono text-slate-400">
-                              STOPPED
-                            </span>
-                          </>
-                        )}
-                      </div>
-
-                      {/* URL Bar */}
-                      <div className="flex items-center gap-1 flex-1 bg-[#131826] border border-slate-800/90 rounded-md px-2 py-1 text-xs font-mono text-slate-300 min-w-0">
-                        <Globe className="h-3 w-3 text-cyan-400 shrink-0" />
-                        <span className="truncate text-slate-400 select-all">
-                          {previewUrl ||
-                            (isServerRunning
-                              ? "Establishing WebContainer tunnel..."
-                              : "Server Offline")}
-                        </span>
-                        <span className="text-indigo-400 font-bold">
-                          {previewPath === "/" ? "" : previewPath}
-                        </span>
-                      </div>
-
-                      {/* Copy URL button */}
-                      {previewUrl && (
-                        <button
-                          onClick={() => {
-                            const fullUrl =
-                              (previewUrl || "http://localhost:5000") +
-                              (previewPath === "/" ? "" : previewPath);
-                            navigator.clipboard.writeText(fullUrl);
-                            setUrlCopied(true);
-                            setTimeout(() => setUrlCopied(false), 1500);
-                          }}
-                          className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors cursor-pointer"
-                          title="Copy preview URL"
-                        >
-                          {urlCopied ? (
-                            <Check className="h-3.5 w-3.5 text-emerald-400" />
-                          ) : (
-                            <Copy className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Quick Route Shortcuts */}
-                    <div className="hidden sm:flex items-center gap-1.5 shrink-0">
-                      {[
-                        { label: "Dashboard", path: "/" },
-                        { label: "/api/health", path: "/api/health" },
-                        { label: "/api/auth/me", path: "/api/auth/me" },
-                      ].map((rt) => (
-                        <button
-                          key={rt.path}
-                          onClick={() => setPreviewPath(rt.path)}
-                          className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer ${
-                            previewPath === rt.path
-                              ? "bg-indigo-600 text-white font-semibold"
-                              : "bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800"
-                          }`}
-                        >
-                          {rt.label}
-                        </button>
-                      ))}
-
-                      {previewUrl && (
-                        <a
-                          href={
-                            (previewUrl || "http://localhost:5000") +
-                            (previewPath === "/" ? "" : previewPath)
-                          }
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-[11px] font-semibold transition-colors cursor-pointer"
-                          title="Open Live Preview in a new browser tab"
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                          <span>Open in Tab</span>
-                        </a>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Preview Frame or Offline State */}
-                  <div className="flex-1 relative overflow-hidden bg-[#07090f]">
-                    {isServerRunning ? (
-                      previewUrl ? (
-                        <iframe
-                          key={`${iframeReloadKey}-${previewPath}`}
-                          src={
-                            previewUrl + (previewPath === "/" ? "" : previewPath)
-                          }
-                          className="w-full h-full border-0 bg-[#080c14]"
-                          title="WebContainer Live Preview"
-                          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                        />
-                      ) : (
-                        <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-3">
-                          <RefreshCw className="h-7 w-7 text-cyan-400 animate-spin mx-auto" />
-                          <div className="space-y-1">
-                            <h3 className="text-sm font-bold text-white">
-                              Connecting Live Preview...
-                            </h3>
-                            <p className="text-xs text-slate-400">
-                              Waiting for WebContainer port 5000 tunnel...
-                            </p>
-                          </div>
-                        </div>
-                      )
-                    ) : (
-                      <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-3">
-                        <div className="h-12 w-12 rounded-2xl bg-indigo-950/40 border border-indigo-800/40 flex items-center justify-center text-indigo-400 shadow-inner">
-                          <Globe className="h-6 w-6" />
-                        </div>
-                        <div className="space-y-1 max-w-sm">
-                          <h3 className="text-sm font-bold text-white">
-                            Auth Server is Offline
-                          </h3>
-                          <p className="text-xs text-slate-400 leading-relaxed">
-                            Start the Node.js HTTP server in WebContainer to inspect live
-                            authentication endpoints, verify JWT tokens, and interact with the service.
-                          </p>
-                        </div>
-                        <button
-                          onClick={handleStartServer}
-                          disabled={startingServer}
-                          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/25 transition-all cursor-pointer disabled:opacity-50"
-                        >
-                          {startingServer ? (
-                            <>
-                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                              <span>Starting Server...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Play className="h-3.5 w-3.5 fill-white" />
-                              <span>Start Dev Server (node server.js)</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <LivePreviewView
+                  previewUrl={previewUrl}
+                  serverPort={serverPort}
+                  isServerRunning={isServerRunning}
+                  startingServer={startingServer}
+                  onStartServer={handleStartServer}
+                  previewPath={previewPath}
+                  onChangePreviewPath={setPreviewPath}
+                  isCompact={true}
+                />
               )}
             </div>
           </div>
-        </main>
+        </>
+      )}
+    </main>
 
         {/* ── RIGHT COLUMN: AI Mentor / AI Chatbot ── */}
         <AiMentor
