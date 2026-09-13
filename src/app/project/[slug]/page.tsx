@@ -16,6 +16,7 @@ export default function ProjectWorkspaceSlugPage({
   // and ensure the workspace loads instantly even when MongoDB is offline.
   const isAuthSlug =
     slug === "build-auth" ||
+    slug === "build_auth" ||
     slug === "build-express-mongodb-auth" ||
     slug === "default";
 

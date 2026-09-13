@@ -32,6 +32,8 @@ interface CodeEditorProps {
   onContentChange?: (content: string) => void;
   /** Optional callback when user clicks Aria nudge suggestion */
   onTriggerAriaNudge?: (prompt: string) => void;
+  /** Optional fallback initial files */
+  initialFiles?: Array<{ path: string; content: string }>;
   /** Optional new tab trigger */
   onNewTab?: () => void;
 }
@@ -116,6 +118,7 @@ export default function CodeEditor({
   onCloseTab,
   onContentChange,
   onTriggerAriaNudge,
+  initialFiles,
   onNewTab,
 }: CodeEditorProps) {
   const contentCache = useRef<
@@ -156,12 +159,26 @@ export default function CodeEditor({
       setCurrentContent(content);
       onContentChange?.(content);
     } catch (err: any) {
-      setFileError(err?.message || "Could not read file.");
-      setCurrentContent("");
+      // Check fallback from initial project files if WebContainer is still starting
+      const cleanPath = path.replace(/^\/+/, "");
+      const fallback = initialFiles?.find(
+        (f) => f.path === path || f.path.replace(/^\/+/, "") === cleanPath
+      );
+      if (fallback) {
+        contentCache.current.set(path, {
+          content: fallback.content,
+          savedContent: fallback.content,
+        });
+        setCurrentContent(fallback.content);
+        onContentChange?.(fallback.content);
+      } else {
+        setFileError(err?.message || "Could not read file.");
+        setCurrentContent("");
+      }
     } finally {
       setLoadingFile(false);
     }
-  }, [onContentChange]);
+  }, [onContentChange, initialFiles]);
 
   useEffect(() => {
     loadFile(activePath);

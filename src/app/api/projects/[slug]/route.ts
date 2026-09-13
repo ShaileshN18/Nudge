@@ -17,9 +17,10 @@ export async function GET(
     slug = "";
   }
 
-  // Normalize slug: whether user accesses "build-auth" or "build-express-mongodb-auth"
+  // Normalize slug: whether user accesses "build-auth" or "build-express-mongodb-auth" or "build_auth"
   const isAuthSlug =
     slug === "build-auth" ||
+    slug === "build_auth" ||
     slug === "build-express-mongodb-auth" ||
     slug === "default" ||
     !slug;
@@ -29,7 +30,7 @@ export async function GET(
   try {
     await connectToDatabase();
     project = await Project.findOne({
-      $or: [{ slug }, { slug: "build-auth" }, { slug: "build-express-mongodb-auth" }],
+      $or: [{ slug }, { slug: "build-auth" }, { slug: "build_auth" }, { slug: "build-express-mongodb-auth" }],
     });
 
     if (!project && isAuthSlug) {

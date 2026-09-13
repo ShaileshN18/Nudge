@@ -154,6 +154,60 @@ async function buildTree(dirPath: string): Promise<TreeNode[]> {
   }
 }
 
+function buildTreeFromFiles(files: any[]): TreeNode[] {
+  const rootNodes: TreeNode[] = [];
+  const dirMap = new Map<string, TreeNode>();
+
+  for (const f of files) {
+    if (!f.path) continue;
+    const norm = f.path.replace(/^\/+|\/+$/g, "");
+    if (!norm) continue;
+    const parts = norm.split("/");
+    let currentPath = "";
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const isFile = i === parts.length - 1;
+      const prevPath = currentPath;
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+      if (isFile) {
+        const fileNode: TreeNode = {
+          name: part,
+          path: currentPath,
+          isDirectory: false,
+        };
+        if (prevPath && dirMap.has(prevPath)) {
+          const parent = dirMap.get(prevPath)!;
+          if (!parent.children) parent.children = [];
+          parent.children.push(fileNode);
+        } else {
+          rootNodes.push(fileNode);
+        }
+      } else {
+        if (!dirMap.has(currentPath)) {
+          const dirNode: TreeNode = {
+            name: part,
+            path: currentPath,
+            isDirectory: true,
+            children: [],
+          };
+          dirMap.set(currentPath, dirNode);
+          if (prevPath && dirMap.has(prevPath)) {
+            const parent = dirMap.get(prevPath)!;
+            if (!parent.children) parent.children = [];
+            parent.children.push(dirNode);
+          } else {
+            rootNodes.push(dirNode);
+          }
+        }
+      }
+    }
+  }
+
+  return sortEntries(rootNodes);
+}
+
 // ─── Inline Creation Input Component ────────────────────────────────
 
 function InlineCreationInput({
@@ -484,6 +538,7 @@ export default function FileTree({
   onDeleteFile,
   onRenameFile,
   refreshKey = 0,
+  files,
 }: FileTreeProps) {
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -504,7 +559,10 @@ export default function FileTree({
   const loadTree = useCallback(async () => {
     setLoading(true);
     try {
-      const nodes = await buildTree(".");
+      let nodes = await buildTree(".");
+      if (nodes.length === 0 && files && files.length > 0) {
+        nodes = buildTreeFromFiles(files);
+      }
       setTree(nodes);
       // Auto-expand top-level directories on first load
       setExpanded((prev) => {
@@ -516,10 +574,13 @@ export default function FileTree({
       });
     } catch (err) {
       console.error("Failed to read WebContainer FS:", err);
+      if (files && files.length > 0) {
+        setTree(buildTreeFromFiles(files));
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [files]);
 
   useEffect(() => {
     loadTree();

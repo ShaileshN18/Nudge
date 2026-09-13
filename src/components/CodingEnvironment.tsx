@@ -142,6 +142,37 @@ export default function CodingEnvironment({
 
     async function initializeFiles(files: ProjectFile[]) {
       if (files.length > 0) {
+        // Immediately set preferred file and initial tabs so editor isn't blank
+        const preferredFile =
+          files.find((f) => f.path.includes("User.js")) ||
+          files.find((f) => f.path.includes("server.js")) ||
+          files.find((f) => f.visible !== false && f.editable !== false) ||
+          files[0];
+
+        if (preferredFile) {
+          setActiveFilePath(preferredFile.path);
+          setActiveFileContent(preferredFile.content);
+
+          const initialTabsList: OpenTab[] = [];
+          files.forEach((f) => {
+            if (
+              f.path.includes("public/index.html") ||
+              f.path.includes("server.js") ||
+              f.path.includes("User.js") ||
+              f.path.includes("routes/auth.js") ||
+              f.path.includes("test.js")
+            ) {
+              initialTabsList.push({ path: f.path, dirty: false });
+            }
+          });
+
+          if (initialTabsList.length === 0) {
+            initialTabsList.push({ path: preferredFile.path, dirty: false });
+          }
+
+          setOpenTabs(initialTabsList);
+        }
+
         try {
           await mountProject(files);
           setTreeRefreshKey((k) => k + 1);
@@ -155,38 +186,6 @@ export default function CodingEnvironment({
             });
           } catch (srErr) {
             console.warn("Server-ready listener warning:", srErr);
-          }
-
-          // Find default file (e.g. User.js or server.js or first editable file)
-          const preferredFile =
-            files.find((f) => f.path.includes("User.js")) ||
-            files.find((f) => f.path.includes("server.js")) ||
-            files.find((f) => f.visible !== false && f.editable !== false) ||
-            files[0];
-
-          if (preferredFile) {
-            setActiveFilePath(preferredFile.path);
-            setActiveFileContent(preferredFile.content);
-
-            // Open initial tabs for the project
-            const initialTabsList: OpenTab[] = [];
-            files.forEach((f) => {
-              if (
-                f.path.includes("public/index.html") ||
-                f.path.includes("server.js") ||
-                f.path.includes("User.js") ||
-                f.path.includes("routes/auth.js") ||
-                f.path.includes("test.js")
-              ) {
-                initialTabsList.push({ path: f.path, dirty: false });
-              }
-            });
-
-            if (initialTabsList.length === 0) {
-              initialTabsList.push({ path: preferredFile.path, dirty: false });
-            }
-
-            setOpenTabs(initialTabsList);
           }
         } catch (mErr) {
           console.warn("WebContainer mount warning:", mErr);
@@ -642,6 +641,7 @@ export default function CodingEnvironment({
               onDeleteFile={handleDeleteFile}
               onRenameFile={handleRenameFile}
               refreshKey={treeRefreshKey}
+              files={project?.files}
             />
           </div>
 
@@ -710,6 +710,7 @@ export default function CodingEnvironment({
                   onCloseTab={handleCloseTab}
                   onContentChange={handleContentChange}
                   onTriggerAriaNudge={handleAriaPrompt}
+                  initialFiles={project?.files}
                 />
               </div>
               <div className="w-1/2 h-full relative overflow-hidden bg-[#07090f] flex flex-col">
@@ -737,6 +738,7 @@ export default function CodingEnvironment({
                   onCloseTab={handleCloseTab}
                   onContentChange={handleContentChange}
                   onTriggerAriaNudge={handleAriaPrompt}
+                  initialFiles={project?.files}
                 />
               </div>
 
