@@ -104,11 +104,13 @@ export const authSeedProject: SeedProject = {
     {
       path: "server.js",
       content: `const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const authRoutes = require('./src/routes/auth');
 
 const PORT = process.env.PORT || 5000;
 
-// Lightweight HTTP server supporting both pure Node and Express interfaces
+// Lightweight HTTP server supporting pure Node and Express interfaces
 const server = http.createServer((req, res) => {
   // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -150,8 +152,19 @@ const server = http.createServer((req, res) => {
       };
     };
 
+    // Serve public/index.html on root "/"
+    const parsedUrl = req.url.split('?')[0];
+    if (parsedUrl === '/' || parsedUrl === '/index.html' || parsedUrl === '') {
+      const htmlFile = path.join(__dirname, 'public', 'index.html');
+      if (fs.existsSync(htmlFile)) {
+        const content = fs.readFileSync(htmlFile, 'utf-8');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(content);
+      }
+    }
+
     // Health check endpoint
-    if (req.url === '/' || req.url === '/api/health') {
+    if (parsedUrl === '/api/health') {
       return res.json({
         status: 'healthy',
         service: 'Nudge Auth API',
@@ -165,7 +178,8 @@ const server = http.createServer((req, res) => {
     }
 
     // Delegate to auth routes
-    if (req.url.startsWith('/api/auth')) {
+    if (parsedUrl.startsWith('/api/auth')) {
+      req.url = parsedUrl;
       return authRoutes.handleRequest(req, res);
     }
 
@@ -178,12 +192,320 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(\`🚀 Auth Server running at http://localhost:\${PORT}\`);
-  console.log(\`📖 Health check available at http://localhost:\${PORT}/api/health\`);
-  console.log('⚡ Ready to process authentication requests!');
+  console.log(\`🚀 Server running at http://localhost:\${PORT}\`);
+  console.log(\`📖 Live Preview available at http://localhost:\${PORT}\`);
 });
 
 module.exports = server;
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "public/index.html",
+      content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Frontend Sandbox &bull; Interactive Boxes</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #080c14;
+      color: #f1f5f9;
+      padding: 24px 20px;
+      min-height: 100vh;
+    }
+    .container { max-width: 860px; margin: 0 auto; }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 16px;
+      margin-bottom: 18px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, #6366f1, #a855f7);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 18px; color: white;
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+    }
+    .title { font-size: 18px; font-weight: 700; color: #fff; }
+    .subtitle { font-size: 12px; color: #64748b; margin-top: 2px; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600;
+      background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #10b981; }
+
+    .banner {
+      background: #0f1422; border: 1px dashed #334155; border-radius: 12px; padding: 12px 16px;
+      margin-bottom: 20px; font-size: 12px; color: #94a3b8; display: flex; align-items: center; justify-content: space-between;
+    }
+    .banner code {
+      background: #1e293b; color: #a5b4fc; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 11px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .box {
+      background: #0f1422;
+      border: 1px solid #1e293b;
+      border-radius: 14px;
+      padding: 18px;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 170px;
+    }
+    .box:hover {
+      border-color: #4338ca;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .box-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .box-title { font-size: 14px; font-weight: 700; color: #f8fafc; }
+    .box-tag { font-size: 10px; font-weight: 700; font-family: monospace; padding: 2px 6px; border-radius: 4px; }
+    .box-desc { font-size: 11px; color: #64748b; margin-bottom: 12px; }
+
+    /* Box 1: Counter */
+    .counter-val {
+      font-size: 32px; font-weight: 800; font-family: monospace; color: #818cf8; text-align: center; margin: 6px 0;
+    }
+    .btn-group { display: flex; gap: 8px; }
+    .btn {
+      flex: 1; padding: 7px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+      border: 1px solid transparent; transition: all 0.15s; text-align: center;
+    }
+    .btn-indigo { background: #4f46e5; color: white; }
+    .btn-indigo:hover { background: #4338ca; }
+    .btn-slate { background: #1e293b; color: #cbd5e1; border-color: #334155; }
+    .btn-slate:hover { background: #334155; color: white; }
+
+    /* Box 2: Color Box */
+    .color-swatch {
+      height: 44px; border-radius: 8px; margin-bottom: 10px; display: flex; align-items: center; justify-content: center;
+      font-family: monospace; font-size: 12px; font-weight: 700; transition: background-color 0.3s;
+    }
+
+    /* Box 3: Toggle Lamp */
+    .lamp {
+      padding: 10px; border-radius: 8px; text-align: center; font-size: 12px; font-weight: 600; margin-bottom: 10px;
+      transition: all 0.3s;
+    }
+    .lamp-on {
+      background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #34d399;
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.3);
+    }
+    .lamp-off {
+      background: #131826; border: 1px solid #1e293b; color: #64748b;
+    }
+
+    /* Box 4: Bounce Card */
+    .bounce-target {
+      padding: 12px; border-radius: 8px; background: #ec4899; color: white; text-align: center;
+      font-weight: 700; font-size: 13px; cursor: pointer; margin-bottom: 8px; user-select: none;
+      transition: transform 0.15s;
+    }
+    .bounce-target:hover { transform: scale(1.03); }
+    .bounce-target:active { transform: scale(0.95); }
+
+    /* Box 5: Live Timer */
+    .timer-display {
+      font-size: 26px; font-weight: 800; font-family: monospace; color: #38bdf8; text-align: center; margin: 8px 0;
+    }
+
+    /* Box 6: API Ping */
+    .api-response {
+      font-size: 11px; font-family: monospace; padding: 6px 10px; background: #05070d; border-radius: 6px;
+      border: 1px solid #1e293b; color: #34d399; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="brand">
+        <div class="logo">✦</div>
+        <div>
+          <div class="title">Mini Frontend Sandbox</div>
+          <div class="subtitle">Interactive boxes rendered via WebContainer live server</div>
+        </div>
+      </div>
+      <div class="badge"><span class="dot"></span> Live Preview Active</div>
+    </div>
+
+    <div class="banner">
+      <span>✏️ <strong>Live Editing Tip:</strong> Open <code>public/index.html</code> in the code editor, change colors or text, and click <strong>Reload</strong>!</span>
+    </div>
+
+    <div class="grid">
+      <!-- Box 1: Click Counter -->
+      <div class="box">
+        <div>
+          <div class="box-header">
+            <span class="box-title">Box 1: Counter</span>
+            <span class="box-tag" style="background:rgba(99,102,241,0.2);color:#a5b4fc;">INTERACTIVE</span>
+          </div>
+          <div class="box-desc">Track clicks with state</div>
+          <div id="counter" class="counter-val">0</div>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-indigo" onclick="changeCount(1)">+ Add</button>
+          <button class="btn btn-slate" onclick="changeCount(-1)">- Sub</button>
+          <button class="btn btn-slate" onclick="resetCount()">Reset</button>
+        </div>
+      </div>
+
+      <!-- Box 2: Color Changer -->
+      <div class="box">
+        <div>
+          <div class="box-header">
+            <span class="box-title">Box 2: Color Shift</span>
+            <span class="box-tag" style="background:rgba(236,72,153,0.2);color:#f472b6;">STYLE</span>
+          </div>
+          <div class="box-desc">Dynamic background switcher</div>
+          <div id="swatch" class="color-swatch" style="background:#6366f1;color:white;">#6366F1</div>
+        </div>
+        <button class="btn btn-indigo" style="width:100%;" onclick="randomizeColor()">🎲 Random Color</button>
+      </div>
+
+      <!-- Box 3: Toggle Lamp -->
+      <div class="box">
+        <div>
+          <div class="box-header">
+            <span class="box-title">Box 3: Glow Switch</span>
+            <span class="box-tag" style="background:rgba(16,185,129,0.2);color:#34d399;">TOGGLE</span>
+          </div>
+          <div class="box-desc">Glow lighting effect</div>
+          <div id="lamp" class="lamp lamp-on">💡 Glow is Active</div>
+        </div>
+        <button class="btn btn-slate" style="width:100%;" onclick="toggleLamp()">Toggle Light</button>
+      </div>
+
+      <!-- Box 4: Bounce Card -->
+      <div class="box">
+        <div>
+          <div class="box-header">
+            <span class="box-title">Box 4: Physics Bounce</span>
+            <span class="box-tag" style="background:rgba(244,63,94,0.2);color:#fb7185;">ANIMATION</span>
+          </div>
+          <div class="box-desc">Click the card to animate</div>
+          <div id="bounceBtn" class="bounce-target" onclick="triggerBounce()">🎉 Tap to Bounce!</div>
+        </div>
+        <div style="font-size:11px;color:#64748b;text-align:center;">Bounce Count: <span id="bounces" style="color:#f43f5e;font-weight:700;">0</span></div>
+      </div>
+
+      <!-- Box 5: Live Timer -->
+      <div class="box">
+        <div>
+          <div class="box-header">
+            <span class="box-title">Box 5: Live Timer</span>
+            <span class="box-tag" style="background:rgba(14,165,233,0.2);color:#38bdf8;">REALTIME</span>
+          </div>
+          <div class="box-desc">Seconds running on page</div>
+          <div id="timer" class="timer-display">00:00</div>
+        </div>
+        <div style="font-size:11px;color:#64748b;text-align:center;">Updates every second</div>
+      </div>
+
+      <!-- Box 6: Backend API Ping -->
+      <div class="box">
+        <div>
+          <div class="box-header">
+            <span class="box-title">Box 6: API Ping</span>
+            <span class="box-tag" style="background:rgba(168,85,247,0.2);color:#c084fc;">REST API</span>
+          </div>
+          <div class="box-desc">Hits GET /api/health</div>
+          <div id="apiResp" class="api-response">Status: Ready</div>
+        </div>
+        <button class="btn btn-indigo" style="width:100%;" onclick="pingApi()">⚡ Ping Server</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Box 1: Counter
+    let count = 0;
+    function changeCount(delta) {
+      count += delta;
+      document.getElementById('counter').textContent = count;
+    }
+    function resetCount() {
+      count = 0;
+      document.getElementById('counter').textContent = count;
+    }
+
+    // Box 2: Color Changer
+    const colors = ['#6366f1', '#ec4899', '#10b981', '#8b5cf6', '#f59e0b', '#06b6d4', '#e11d48'];
+    let cIdx = 0;
+    function randomizeColor() {
+      cIdx = (cIdx + 1) % colors.length;
+      const el = document.getElementById('swatch');
+      el.style.backgroundColor = colors[cIdx];
+      el.textContent = colors[cIdx].toUpperCase();
+    }
+
+    // Box 3: Toggle Lamp
+    let lampOn = true;
+    function toggleLamp() {
+      lampOn = !lampOn;
+      const el = document.getElementById('lamp');
+      if (lampOn) {
+        el.className = 'lamp lamp-on';
+        el.textContent = '💡 Glow is Active';
+      } else {
+        el.className = 'lamp lamp-off';
+        el.textContent = '🌙 Light is OFF';
+      }
+    }
+
+    // Box 4: Bounce
+    let bounces = 0;
+    function triggerBounce() {
+      bounces++;
+      document.getElementById('bounces').textContent = bounces;
+      const el = document.getElementById('bounceBtn');
+      el.style.transform = 'scale(1.15) rotate(' + (bounces % 2 === 0 ? '3deg' : '-3deg') + ')';
+      setTimeout(() => { el.style.transform = 'scale(1)'; }, 150);
+    }
+
+    // Box 5: Live Timer
+    let seconds = 0;
+    setInterval(() => {
+      seconds++;
+      const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+      const secs = (seconds % 60).toString().padStart(2, '0');
+      document.getElementById('timer').textContent = mins + ':' + secs;
+    }, 1000);
+
+    // Box 6: API Ping
+    async function pingApi() {
+      const el = document.getElementById('apiResp');
+      el.textContent = 'Pinging /api/health...';
+      try {
+        const res = await fetch('/api/health');
+        const json = await res.json();
+        el.textContent = '🟢 ' + json.status + ' (' + new Date().toLocaleTimeString() + ')';
+      } catch (err) {
+        el.textContent = '❌ Error: ' + err.message;
+      }
+    }
+  </script>
+</body>
+</html>
 `,
       visible: true,
       editable: true,

@@ -9,6 +9,7 @@ import {
   Play,
   RefreshCw,
   Sparkles,
+  Globe,
 } from "lucide-react";
 
 export interface TaskItem {
@@ -35,6 +36,10 @@ interface TaskHeaderProps {
   taskCompleted: boolean;
   onRunCode?: () => void;
   runningCode?: boolean;
+  onStartServer?: () => void;
+  isServerRunning?: boolean;
+  startingServer?: boolean;
+  previewUrl?: string | null;
 }
 
 export default function TaskHeader({
@@ -51,6 +56,10 @@ export default function TaskHeader({
   taskCompleted,
   onRunCode,
   runningCode = false,
+  onStartServer,
+  isServerRunning = false,
+  startingServer = false,
+  previewUrl,
 }: TaskHeaderProps) {
   // Extract or fall back target files
   const targetFiles = currentTask.targetFiles && currentTask.targetFiles.length > 0
@@ -177,6 +186,44 @@ export default function TaskHeader({
                 <>
                   <Play className="h-3.5 w-3.5 fill-white" />
                   <span>Run Code</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {onStartServer && (
+            <button
+              onClick={onStartServer}
+              disabled={startingServer}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-md transition-all cursor-pointer disabled:opacity-50 ${
+                isServerRunning
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30 shadow-cyan-500/10"
+                  : "bg-slate-800/90 hover:bg-slate-700 text-slate-300 border border-slate-700 hover:border-slate-600"
+              }`}
+              title={
+                isServerRunning
+                  ? "Auth Server running - Click to open Live Preview"
+                  : "Start Node.js server and view Live Preview"
+              }
+            >
+              {startingServer ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-cyan-400" />
+                  <span>Starting Server...</span>
+                </>
+              ) : isServerRunning ? (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <Globe className="h-3.5 w-3.5 text-cyan-400" />
+                  <span>Live Preview</span>
+                </>
+              ) : (
+                <>
+                  <Globe className="h-3.5 w-3.5 text-slate-400" />
+                  <span>Start Server &amp; Preview</span>
                 </>
               )}
             </button>

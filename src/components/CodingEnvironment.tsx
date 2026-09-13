@@ -16,12 +16,24 @@ import {
   Play,
   X,
   ExternalLink,
+  Globe,
+  Maximize2,
+  Minimize2,
+  Square,
+  Copy,
+  Check,
 } from "lucide-react";
 import FileTree from "@/components/FileTree";
 import CodeEditor, { type OpenTab } from "@/components/CodeEditor";
 import TaskHeader, { type TaskItem } from "@/components/TaskHeader";
 import AiMentor from "@/components/AiMentor";
-import { mountProject, spawnProcess, writeProjectFile } from "@/lib/webcontainer";
+import {
+  mountProject,
+  spawnProcess,
+  writeProjectFile,
+  onServerReady,
+  getWebContainer,
+} from "@/lib/webcontainer";
 
 export interface ProjectFile {
   path: string;
@@ -72,13 +84,24 @@ export default function CodingEnvironment({
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
 
   // Bottom Console / Terminal state
-  const [activeBottomTab, setActiveBottomTab] = useState<"terminal" | "problems">("terminal");
+  const [activeBottomTab, setActiveBottomTab] = useState<"terminal" | "problems" | "preview">("terminal");
   const [runningCode, setRunningCode] = useState(false);
   const [terminalInput, setTerminalInput] = useState("");
   const [terminalLogs, setTerminalLogs] = useState<string[]>([
     "🚀 WebContainer Node.js Runtime Ready",
-    "💡 Type commands below or click 'Run Code' / '▶ Run Tests' to test your Auth service.",
+    "💡 Type commands below, click 'Run Code', or click 'Live Preview' to view the running app.",
   ]);
+
+  // Server & Live Preview state
+  const [isServerRunning, setIsServerRunning] = useState(false);
+  const [startingServer, setStartingServer] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [serverPort, setServerPort] = useState<number | null>(null);
+  const [previewPath, setPreviewPath] = useState("/");
+  const [panelExpanded, setPanelExpanded] = useState(false);
+  const [iframeReloadKey, setIframeReloadKey] = useState(0);
+  const [urlCopied, setUrlCopied] = useState(false);
+  const serverProcessRef = React.useRef<any>(null);
 
   // AI Mentor state
   const [externalAiPrompt, setExternalAiPrompt] = useState<string | null>(null);
@@ -119,6 +142,17 @@ export default function CodingEnvironment({
           await mountProject(files);
           setTreeRefreshKey((k) => k + 1);
 
+          // Listen for WebContainer server-ready events
+          try {
+            onServerReady((port, url) => {
+              setPreviewUrl(url);
+              setServerPort(port);
+              setIsServerRunning(true);
+            });
+          } catch (srErr) {
+            console.warn("Server-ready listener warning:", srErr);
+          }
+
           // Find default file (e.g. User.js or server.js or first editable file)
           const preferredFile =
             files.find((f) => f.path.includes("User.js")) ||
@@ -134,6 +168,7 @@ export default function CodingEnvironment({
             const initialTabsList: OpenTab[] = [];
             files.forEach((f) => {
               if (
+                f.path.includes("public/index.html") ||
                 f.path.includes("server.js") ||
                 f.path.includes("User.js") ||
                 f.path.includes("routes/auth.js") ||
@@ -222,6 +257,25 @@ export default function CodingEnvironment({
     [activeFilePath]
   );
 
+  const saveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const handleContentChange = useCallback(
+    (content: string) => {
+      setActiveFileContent(content);
+      if (activeFilePath) {
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(async () => {
+          try {
+            await writeProjectFile(activeFilePath, content);
+          } catch (err) {
+            console.warn("Auto-save warning:", err);
+          }
+        }, 300);
+      }
+    },
+    [activeFilePath]
+  );
+
   // ── Task Management & Evaluation ──────────────────────────────────
   const currentTask: TaskItem =
     project?.tasks?.[currentTaskIndex] || {
@@ -239,11 +293,95 @@ export default function CodingEnvironment({
       ],
     };
 
+  const handleStartServer = useCallback(async () => {
+    setActiveBottomTab("preview");
+    if (isServerRunning && previewUrl) {
+      return;
+    }
+
+    setStartingServer(true);
+    setTerminalLogs((prev) => [
+      ...prev,
+      "",
+      "➜ node server.js",
+      "⚡ [WebContainer] Starting Node.js HTTP Server on port 5000...",
+    ]);
+
+    const appendLog = (lines: string | string[]) => {
+      const arr = Array.isArray(lines) ? lines : lines.split("\n");
+      setTerminalLogs((prev) => [...prev, ...arr.filter((l) => l.length > 0)]);
+    };
+
+    try {
+      // Auto-save active file before starting server
+      if (activeFilePath && activeFileContent) {
+        try {
+          await writeProjectFile(activeFilePath, activeFileContent);
+        } catch (saveErr) {
+          console.warn("Auto-save warning:", saveErr);
+        }
+      }
+
+      // Attach WebContainer server-ready listener
+      try {
+        await onServerReady((port, url) => {
+          setPreviewUrl(url);
+          setServerPort(port);
+          setIsServerRunning(true);
+          setActiveBottomTab("preview");
+          appendLog([
+            `✔ [WebContainer] Dev Server Ready! Listening on port ${port}`,
+            `🌐 Live Preview URL: ${url}`,
+          ]);
+        });
+      } catch (srErr) {
+        console.warn("onServerReady listener error:", srErr);
+      }
+
+      const proc = await spawnProcess("node", ["server.js"], {
+        output: (chunk) => appendLog(chunk),
+      });
+
+      serverProcessRef.current = proc;
+      setIsServerRunning(true);
+
+      proc.exit.then((code) => {
+        setIsServerRunning(false);
+        appendLog(`ℹ Server process exited with code ${code}`);
+      });
+    } catch (err: any) {
+      console.warn("Spawn server error:", err);
+      appendLog([
+        "❌ Failed to spawn server process.",
+        `Error: ${err?.message || err}`,
+      ]);
+    } finally {
+      setStartingServer(false);
+    }
+  }, [activeFilePath, activeFileContent, isServerRunning, previewUrl]);
+
+  const handleStopServer = useCallback(() => {
+    if (serverProcessRef.current) {
+      try {
+        serverProcessRef.current.kill();
+      } catch (kErr) {
+        console.warn("Error stopping server process:", kErr);
+      }
+      serverProcessRef.current = null;
+    }
+    setIsServerRunning(false);
+    setTerminalLogs((prev) => [...prev, "🛑 Node.js server stopped."]);
+  }, []);
+
   const handleRunCode = async (cmd = "node", args = ["test.js"]) => {
+    const isServerRun = cmd === "node" && args.includes("server.js");
+    if (isServerRun) {
+      return handleStartServer();
+    }
+
     setRunningCode(true);
     setActiveBottomTab("terminal");
     const fullCmd = `${cmd} ${args.join(" ")}`.trim();
-    const isServerRun = cmd === "node" && args.includes("server.js");
     const isTestRun = cmd === "node" && (args.includes("test.js") || args[0] === "test.js");
 
     // Auto-save active file before running
@@ -535,6 +673,10 @@ export default function CodingEnvironment({
             taskCompleted={taskCompleted}
             onRunCode={() => handleRunCode("node", ["test.js"])}
             runningCode={runningCode}
+            onStartServer={handleStartServer}
+            isServerRunning={isServerRunning}
+            startingServer={startingServer}
+            previewUrl={previewUrl}
           />
 
           {/* Middle: Monaco Code Editor */}
@@ -544,13 +686,21 @@ export default function CodingEnvironment({
               tabs={openTabs}
               onSelectTab={handleSelectTab}
               onCloseTab={handleCloseTab}
-              onContentChange={(content) => setActiveFileContent(content)}
+              onContentChange={handleContentChange}
               onTriggerAriaNudge={handleAriaPrompt}
             />
           </div>
 
-          {/* Bottom: Terminal / Problems Panel */}
-          <div className="h-48 bg-[#0a0d16] border-t border-slate-800/90 flex flex-col shrink-0">
+          {/* Bottom: Terminal / Problems / Live Preview Panel */}
+          <div
+            className={`${
+              panelExpanded
+                ? "h-[450px]"
+                : activeBottomTab === "preview"
+                ? "h-80"
+                : "h-56"
+            } bg-[#0a0d16] border-t border-slate-800/90 flex flex-col shrink-0 transition-all duration-200`}
+          >
             {/* Panel Tabs Header */}
             <div className="h-8 bg-[#0e1322] border-b border-slate-800/80 px-3 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-4 text-xs font-medium">
@@ -577,113 +727,370 @@ export default function CodingEnvironment({
                   <AlertCircle className="h-3 w-3 text-slate-400" />
                   <span>Problems 0</span>
                 </button>
+
+                <button
+                  onClick={() => setActiveBottomTab("preview")}
+                  className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
+                    activeBottomTab === "preview"
+                      ? "border-cyan-400 text-white font-semibold"
+                      : "border-transparent text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <div className="relative flex items-center justify-center">
+                    <Globe className="h-3 w-3 text-cyan-400" />
+                    {isServerRunning && (
+                      <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    )}
+                  </div>
+                  <span>Live Preview</span>
+                  {isServerRunning && (
+                    <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      :5000
+                    </span>
+                  )}
+                </button>
               </div>
 
-              {/* Console Toolbar buttons on right */}
+              {/* Console / Preview Toolbar buttons on right */}
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleRunCode("node", ["test.js"])}
-                  disabled={runningCode}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
-                  title="Execute test suite (no npm install needed)"
-                >
-                  <Play className="h-2.5 w-2.5 fill-emerald-300" />
-                  <span>node test.js</span>
-                </button>
+                {activeBottomTab === "preview" ? (
+                  <>
+                    <button
+                      onClick={async () => {
+                        if (activeFilePath && activeFileContent) {
+                          try {
+                            await writeProjectFile(activeFilePath, activeFileContent);
+                          } catch {}
+                        }
+                        setIframeReloadKey((k) => k + 1);
+                      }}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] transition-colors cursor-pointer"
+                      title="Reload preview iframe"
+                    >
+                      <RefreshCw className="h-2.5 w-2.5 text-cyan-400" />
+                      <span>Reload</span>
+                    </button>
 
-                <button
-                  onClick={() => handleRunCode("npm", ["install"])}
-                  disabled={runningCode}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
-                  title="Install npm dependencies (required before running server.js)"
-                >
-                  <Plus className="h-2.5 w-2.5" />
-                  <span>npm install</span>
-                </button>
+                    {isServerRunning ? (
+                      <button
+                        onClick={handleStopServer}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 border border-rose-800/40 text-[11px] font-mono transition-colors cursor-pointer"
+                        title="Stop Node.js dev server"
+                      >
+                        <Square className="h-2.5 w-2.5 fill-rose-400 text-rose-400" />
+                        <span>Stop Server</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleStartServer}
+                        disabled={startingServer}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-mono transition-colors cursor-pointer disabled:opacity-50"
+                        title="Start Auth Server on port 5000"
+                      >
+                        <Play className="h-2.5 w-2.5 fill-cyan-300" />
+                        <span>Start Server</span>
+                      </button>
+                    )}
 
-                <button
-                  onClick={() => handleRunCode("node", ["server.js"])}
-                  disabled={runningCode}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
-                  title="Start Auth Server on port 5000 (runs npm install first)"
-                >
-                  <Play className="h-2.5 w-2.5 fill-indigo-300" />
-                  <span>node server.js</span>
-                </button>
+                    {previewUrl && (
+                      <a
+                        href={
+                          (previewUrl || "http://localhost:5000") +
+                          (previewPath === "/" ? "" : previewPath)
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors cursor-pointer"
+                        title="Open in new browser tab"
+                      >
+                        <ExternalLink className="h-2.5 w-2.5" />
+                        <span>Open Tab</span>
+                      </a>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => handleRunCode("node", ["test.js"])}
+                      disabled={runningCode}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
+                      title="Execute test suite (no npm install needed)"
+                    >
+                      <Play className="h-2.5 w-2.5 fill-emerald-300" />
+                      <span>node test.js</span>
+                    </button>
 
+                    <button
+                      onClick={() => handleRunCode("npm", ["install"])}
+                      disabled={runningCode}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
+                      title="Install npm dependencies (required before running server.js)"
+                    >
+                      <Plus className="h-2.5 w-2.5" />
+                      <span>npm install</span>
+                    </button>
+
+                    <button
+                      onClick={handleStartServer}
+                      disabled={startingServer}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
+                      title="Start Auth Server on port 5000 and view live preview"
+                    >
+                      <Play className="h-2.5 w-2.5 fill-indigo-300" />
+                      <span>node server.js</span>
+                    </button>
+
+                    <button
+                      onClick={() => setTerminalLogs([])}
+                      className="p-1 hover:text-slate-300 text-slate-500 rounded transition-colors"
+                      title="Clear console"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </>
+                )}
+
+                {/* Maximize / Minimize toggle */}
                 <button
-                  onClick={() => setTerminalLogs([])}
-                  className="p-1 hover:text-slate-300 text-slate-500 rounded transition-colors"
-                  title="Clear console"
+                  onClick={() => setPanelExpanded((prev) => !prev)}
+                  className="p-1 hover:text-slate-200 text-slate-400 rounded hover:bg-slate-800 transition-colors"
+                  title={panelExpanded ? "Collapse panel" : "Expand panel"}
                 >
-                  <Trash2 className="h-3 w-3" />
+                  {panelExpanded ? (
+                    <Minimize2 className="h-3 w-3" />
+                  ) : (
+                    <Maximize2 className="h-3 w-3" />
+                  )}
                 </button>
               </div>
             </div>
 
-
             {/* Panel Tab Content */}
-            <div className="flex-1 p-3 overflow-y-auto font-mono text-xs text-slate-300 space-y-1 select-text flex flex-col justify-between">
+            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
               {activeBottomTab === "terminal" && (
-                <div className="space-y-1 overflow-y-auto flex-1">
-                  {terminalLogs.map((log, i) => (
-                    <div
-                      key={i}
-                      className={`${
-                        log.includes("✔") || log.includes("[PASS]")
-                          ? "text-emerald-400 font-semibold"
-                          : log.includes("❌") || log.includes("[FAIL]")
-                          ? "text-rose-400 font-semibold"
-                          : log.includes("🎉")
-                          ? "text-amber-300 font-bold"
-                          : log.includes("http")
-                          ? "text-cyan-300"
-                          : log.startsWith("➜")
-                          ? "text-indigo-300 font-bold"
-                          : log.startsWith("=") || log.startsWith("📌")
-                          ? "text-slate-400"
-                          : "text-slate-300"
-                      }`}
-                    >
-                      {log}
-                    </div>
-                  ))}
+                <div className="flex-1 p-3 overflow-y-auto font-mono text-xs text-slate-300 space-y-1 select-text flex flex-col justify-between">
+                  <div className="space-y-1 overflow-y-auto flex-1">
+                    {terminalLogs.map((log, i) => (
+                      <div
+                        key={i}
+                        className={`${
+                          log.includes("✔") || log.includes("[PASS]")
+                            ? "text-emerald-400 font-semibold"
+                            : log.includes("❌") || log.includes("[FAIL]")
+                            ? "text-rose-400 font-semibold"
+                            : log.includes("🎉")
+                            ? "text-amber-300 font-bold"
+                            : log.includes("http")
+                            ? "text-cyan-300"
+                            : log.startsWith("➜")
+                            ? "text-indigo-300 font-bold"
+                            : log.startsWith("=") || log.startsWith("📌")
+                            ? "text-slate-400"
+                            : "text-slate-300"
+                        }`}
+                      >
+                        {log}
+                      </div>
+                    ))}
 
-                  {/* Interactive Terminal Prompt */}
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (!terminalInput.trim()) return;
-                      const parts = terminalInput.trim().split(/\s+/);
-                      const cmd = parts[0];
-                      const args = parts.slice(1);
-                      setTerminalInput("");
-                      handleRunCode(cmd, args);
-                    }}
-                    className="flex items-center gap-2 pt-2 mt-1 border-t border-slate-800/60"
-                  >
-                    <span className="text-emerald-400 font-bold">➜</span>
-                    <input
-                      type="text"
-                      value={terminalInput}
-                      onChange={(e) => setTerminalInput(e.target.value)}
-                      placeholder="Run command (e.g. node test.js, node server.js)..."
-                      className="flex-1 bg-transparent text-white font-mono text-xs outline-none placeholder:text-slate-600"
-                    />
-                    <button
-                      type="submit"
-                      disabled={runningCode}
-                      className="px-2 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300 hover:text-white border border-slate-700 hover:bg-slate-700 transition-colors"
+                    {/* Interactive Terminal Prompt */}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!terminalInput.trim()) return;
+                        const parts = terminalInput.trim().split(/\s+/);
+                        const cmd = parts[0];
+                        const args = parts.slice(1);
+                        setTerminalInput("");
+                        handleRunCode(cmd, args);
+                      }}
+                      className="flex items-center gap-2 pt-2 mt-1 border-t border-slate-800/60"
                     >
-                      Execute
-                    </button>
-                  </form>
+                      <span className="text-emerald-400 font-bold">➜</span>
+                      <input
+                        type="text"
+                        value={terminalInput}
+                        onChange={(e) => setTerminalInput(e.target.value)}
+                        placeholder="Run command (e.g. node test.js, node server.js)..."
+                        className="flex-1 bg-transparent text-white font-mono text-xs outline-none placeholder:text-slate-600"
+                      />
+                      <button
+                        type="submit"
+                        disabled={runningCode}
+                        className="px-2 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300 hover:text-white border border-slate-700 hover:bg-slate-700 transition-colors"
+                      >
+                        Execute
+                      </button>
+                    </form>
+                  </div>
                 </div>
               )}
 
               {activeBottomTab === "problems" && (
-                <div className="text-slate-400 py-3 text-center">
+                <div className="p-3 text-slate-400 py-6 text-center text-xs">
                   No syntax or linter problems detected in open files.
+                </div>
+              )}
+
+              {activeBottomTab === "preview" && (
+                <div className="flex-1 flex flex-col min-h-0 bg-[#07090f] overflow-hidden">
+                  {/* Preview Address Bar */}
+                  <div className="h-9 bg-[#0b0f1a] border-b border-slate-800/70 px-3 flex items-center justify-between gap-2 shrink-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {/* Status Indicator */}
+                      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 shrink-0">
+                        {isServerRunning ? (
+                          <>
+                            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                            <span className="text-[10px] font-mono font-semibold text-emerald-300">
+                              :{serverPort || 5000} ONLINE
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="h-2 w-2 rounded-full bg-slate-500" />
+                            <span className="text-[10px] font-mono text-slate-400">
+                              STOPPED
+                            </span>
+                          </>
+                        )}
+                      </div>
+
+                      {/* URL Bar */}
+                      <div className="flex items-center gap-1 flex-1 bg-[#131826] border border-slate-800/90 rounded-md px-2 py-1 text-xs font-mono text-slate-300 min-w-0">
+                        <Globe className="h-3 w-3 text-cyan-400 shrink-0" />
+                        <span className="truncate text-slate-400 select-all">
+                          {previewUrl ||
+                            (isServerRunning
+                              ? "Establishing WebContainer tunnel..."
+                              : "Server Offline")}
+                        </span>
+                        <span className="text-indigo-400 font-bold">
+                          {previewPath === "/" ? "" : previewPath}
+                        </span>
+                      </div>
+
+                      {/* Copy URL button */}
+                      {previewUrl && (
+                        <button
+                          onClick={() => {
+                            const fullUrl =
+                              (previewUrl || "http://localhost:5000") +
+                              (previewPath === "/" ? "" : previewPath);
+                            navigator.clipboard.writeText(fullUrl);
+                            setUrlCopied(true);
+                            setTimeout(() => setUrlCopied(false), 1500);
+                          }}
+                          className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors cursor-pointer"
+                          title="Copy preview URL"
+                        >
+                          {urlCopied ? (
+                            <Check className="h-3.5 w-3.5 text-emerald-400" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Quick Route Shortcuts */}
+                    <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+                      {[
+                        { label: "Dashboard", path: "/" },
+                        { label: "/api/health", path: "/api/health" },
+                        { label: "/api/auth/me", path: "/api/auth/me" },
+                      ].map((rt) => (
+                        <button
+                          key={rt.path}
+                          onClick={() => setPreviewPath(rt.path)}
+                          className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer ${
+                            previewPath === rt.path
+                              ? "bg-indigo-600 text-white font-semibold"
+                              : "bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800"
+                          }`}
+                        >
+                          {rt.label}
+                        </button>
+                      ))}
+
+                      {previewUrl && (
+                        <a
+                          href={
+                            (previewUrl || "http://localhost:5000") +
+                            (previewPath === "/" ? "" : previewPath)
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-[11px] font-semibold transition-colors cursor-pointer"
+                          title="Open Live Preview in a new browser tab"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          <span>Open in Tab</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Preview Frame or Offline State */}
+                  <div className="flex-1 relative overflow-hidden bg-[#07090f]">
+                    {isServerRunning ? (
+                      previewUrl ? (
+                        <iframe
+                          key={`${iframeReloadKey}-${previewPath}`}
+                          src={
+                            previewUrl + (previewPath === "/" ? "" : previewPath)
+                          }
+                          className="w-full h-full border-0 bg-[#080c14]"
+                          title="WebContainer Live Preview"
+                          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                        />
+                      ) : (
+                        <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-3">
+                          <RefreshCw className="h-7 w-7 text-cyan-400 animate-spin mx-auto" />
+                          <div className="space-y-1">
+                            <h3 className="text-sm font-bold text-white">
+                              Connecting Live Preview...
+                            </h3>
+                            <p className="text-xs text-slate-400">
+                              Waiting for WebContainer port 5000 tunnel...
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-3">
+                        <div className="h-12 w-12 rounded-2xl bg-indigo-950/40 border border-indigo-800/40 flex items-center justify-center text-indigo-400 shadow-inner">
+                          <Globe className="h-6 w-6" />
+                        </div>
+                        <div className="space-y-1 max-w-sm">
+                          <h3 className="text-sm font-bold text-white">
+                            Auth Server is Offline
+                          </h3>
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                            Start the Node.js HTTP server in WebContainer to inspect live
+                            authentication endpoints, verify JWT tokens, and interact with the service.
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleStartServer}
+                          disabled={startingServer}
+                          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/25 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          {startingServer ? (
+                            <>
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              <span>Starting Server...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play className="h-3.5 w-3.5 fill-white" />
+                              <span>Start Dev Server (node server.js)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

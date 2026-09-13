@@ -223,6 +223,17 @@ export async function startDevServer(options: DevServerOptions = {}): Promise<{
   return { process, urlPromise };
 }
 
+/**
+ * Attaches a listener for the WebContainer 'server-ready' event.
+ * Returns an unsubscription function.
+ */
+export async function onServerReady(
+  callback: (port: number, url: string) => void
+): Promise<() => void> {
+  const webcontainer = await getWebContainer();
+  return webcontainer.on("server-ready", callback);
+}
+
 export interface DirEntry {
   name: string;
   isDirectory: boolean;
