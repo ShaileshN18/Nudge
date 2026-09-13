@@ -174,7 +174,7 @@ Ready to assist with **Task ${currentTask?.order || 1}: ${
   ];
 
   return (
-    <aside className="w-80 xl:w-96 h-full flex flex-col bg-[#0b0f19] border-l border-slate-800/80 text-slate-200 select-none">
+    <div className="w-full h-full flex flex-col bg-[#0b0f19] text-slate-200 select-none">
       {/* Header */}
       <div className="h-12 px-4 border-b border-slate-800/80 bg-[#0d1322] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5">
@@ -315,7 +315,7 @@ Ready to assist with **Task ${currentTask?.order || 1}: ${
           </button>
         </div>
       </div>
-    </aside>
+    </div>
   );
 }
 

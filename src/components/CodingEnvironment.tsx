@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -28,6 +28,12 @@ import CodeEditor, { type OpenTab } from "@/components/CodeEditor";
 import TaskHeader, { type TaskItem } from "@/components/TaskHeader";
 import AiMentor from "@/components/AiMentor";
 import LivePreviewView from "@/components/LivePreviewView";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+  type PanelImperativeHandle,
+} from "@/components/ui/Resizable";
 import {
   mountProject,
   spawnProcess,
@@ -104,8 +110,18 @@ export default function CodingEnvironment({
   const [previewPath, setPreviewPath] = useState("/");
   const [panelExpanded, setPanelExpanded] = useState(false);
   const [iframeReloadKey, setIframeReloadKey] = useState(0);
-  const [urlCopied, setUrlCopied] = useState(false);
   const serverProcessRef = React.useRef<any>(null);
+  const terminalPanelRef = useRef<PanelImperativeHandle | null>(null);
+
+  const toggleTerminalExpand = useCallback(() => {
+    if (panelExpanded) {
+      terminalPanelRef.current?.resize("28%");
+      setPanelExpanded(false);
+    } else {
+      terminalPanelRef.current?.resize("65%");
+      setPanelExpanded(true);
+    }
+  }, [panelExpanded]);
 
   // AI Mentor state
   const [externalAiPrompt, setExternalAiPrompt] = useState<string | null>(null);
@@ -622,393 +638,465 @@ export default function CodingEnvironment({
         </div>
       </header>
 
-      {/* ── Main Workspace: 3 Columns ── */}
+      {/* ── Main Workspace: 3 Columns with Resizable Panels ── */}
       <div className="flex-1 flex overflow-hidden">
-        {/* ── LEFT COLUMN: Project Tree & Bottom Task Details Button ── */}
-        <aside className="w-60 lg:w-64 bg-[#090d16] border-r border-slate-800/80 flex flex-col shrink-0 overflow-hidden">
-          {/* Section Header */}
-          <div className="px-4 py-3 border-b border-slate-800/60 flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-              Project
-            </span>
-          </div>
+        <ResizablePanelGroup orientation="horizontal" id="main-horizontal-workspace">
+          {/* ── LEFT COLUMN: Project Tree (Resizable!) ── */}
+          <ResizablePanel
+            id="panel-file-tree"
+            defaultSize="18%"
+            minSize="10%"
+            maxSize="35%"
+            collapsible={true}
+            className="bg-[#090d16] flex flex-col overflow-hidden"
+          >
+            {/* Section Header */}
+            <div className="px-4 py-3 border-b border-slate-800/60 flex items-center justify-between shrink-0">
+              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                Project
+              </span>
+            </div>
 
-          {/* File Explorer */}
-          <div className="flex-1 overflow-y-auto">
-            <FileTree
-              activePath={activeFilePath}
-              onSelectFile={handleSelectFile}
-              onDeleteFile={handleDeleteFile}
-              onRenameFile={handleRenameFile}
-              refreshKey={treeRefreshKey}
-              files={project?.files}
-            />
-          </div>
-
-          {/* Bottom Button: "View task details" matching the screenshot! */}
-          <div className="p-3 border-t border-slate-800/80 bg-[#0c101b] shrink-0">
-            <button
-              onClick={() => setShowTaskDetailsModal(true)}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[#131826] hover:bg-[#182033] border border-slate-800 hover:border-slate-700 text-xs font-medium text-slate-300 hover:text-white transition-all shadow-sm group cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <ListTodo className="h-4 w-4 text-indigo-400 group-hover:text-indigo-300" />
-                <span>View task details</span>
-              </div>
-              <ChevronDown className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300" />
-            </button>
-          </div>
-        </aside>
-
-        {/* ── CENTER COLUMN: Questions Section (Top) + Code Editor & Terminal (Bottom) ── */}
-        <main className="flex-1 flex flex-col min-w-0 bg-[#07090f] overflow-hidden">
-          {/* Top: Questions / Task Header */}
-          <TaskHeader
-            currentTask={currentTask}
-            totalTasks={project?.tasks?.length || 3}
-            currentIndex={currentTaskIndex}
-            difficulty={project?.difficulty || "Medium"}
-            activeFilePath={activeFilePath}
-            onSelectFile={handleSelectFile}
-            onPrevTask={handlePrevTask}
-            onNextTask={handleNextTask}
-            onRunEvaluation={handleRunEvaluation}
-            evaluating={evaluating}
-            taskCompleted={taskCompleted}
-            onRunCode={() => handleRunCode("node", ["test.js"])}
-            runningCode={runningCode}
-            onStartServer={handleStartServer}
-            isServerRunning={isServerRunning}
-            startingServer={startingServer}
-            previewUrl={previewUrl}
-            viewMode={workspaceViewMode}
-            onChangeViewMode={setWorkspaceViewMode}
-          />
-
-          {workspaceViewMode === "preview" ? (
-            /* Full Live Preview Canvas View (Not cramped, 100% spacious) */
-            <div className="flex-1 relative overflow-hidden bg-[#07090f] flex flex-col min-h-0">
-              <LivePreviewView
-                previewUrl={previewUrl}
-                serverPort={serverPort}
-                isServerRunning={isServerRunning}
-                startingServer={startingServer}
-                onStartServer={handleStartServer}
-                previewPath={previewPath}
-                onChangePreviewPath={setPreviewPath}
-                isCompact={false}
+            {/* File Explorer */}
+            <div className="flex-1 overflow-y-auto">
+              <FileTree
+                activePath={activeFilePath}
+                onSelectFile={handleSelectFile}
+                onDeleteFile={handleDeleteFile}
+                onRenameFile={handleRenameFile}
+                refreshKey={treeRefreshKey}
+                files={project?.files}
               />
             </div>
-          ) : workspaceViewMode === "split" ? (
-            /* Split View: Code Editor (Left) & Live Preview (Right) */
-            <div className="flex-1 flex min-h-0 divide-x divide-slate-800/90 overflow-hidden">
-              <div className="w-1/2 h-full relative overflow-hidden bg-[#161a26]">
-                <CodeEditor
-                  activePath={activeFilePath}
-                  tabs={openTabs}
-                  onSelectTab={handleSelectTab}
-                  onCloseTab={handleCloseTab}
-                  onContentChange={handleContentChange}
-                  onTriggerAriaNudge={handleAriaPrompt}
-                  initialFiles={project?.files}
-                />
-              </div>
-              <div className="w-1/2 h-full relative overflow-hidden bg-[#07090f] flex flex-col">
-                <LivePreviewView
-                  previewUrl={previewUrl}
-                  serverPort={serverPort}
-                  isServerRunning={isServerRunning}
-                  startingServer={startingServer}
-                  onStartServer={handleStartServer}
-                  previewPath={previewPath}
-                  onChangePreviewPath={setPreviewPath}
-                  isCompact={false}
-                />
-              </div>
-            </div>
-          ) : (
-            /* Code View (Default): Code Editor + Bottom Console Panel */
-            <>
-              {/* Middle: Monaco Code Editor */}
-              <div className="flex-1 relative overflow-hidden bg-[#161a26]">
-                <CodeEditor
-                  activePath={activeFilePath}
-                  tabs={openTabs}
-                  onSelectTab={handleSelectTab}
-                  onCloseTab={handleCloseTab}
-                  onContentChange={handleContentChange}
-                  onTriggerAriaNudge={handleAriaPrompt}
-                  initialFiles={project?.files}
-                />
-              </div>
 
-          {/* Bottom: Terminal / Problems / Live Preview Panel */}
-          <div
-            className={`${
-              panelExpanded
-                ? "h-[450px]"
-                : activeBottomTab === "preview"
-                ? "h-80"
-                : "h-56"
-            } bg-[#0a0d16] border-t border-slate-800/90 flex flex-col shrink-0 transition-all duration-200`}
+            {/* Bottom Button: "View task details" matching the screenshot! */}
+            <div className="p-3 border-t border-slate-800/80 bg-[#0c101b] shrink-0">
+              <button
+                onClick={() => setShowTaskDetailsModal(true)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[#131826] hover:bg-[#182033] border border-slate-800 hover:border-slate-700 text-xs font-medium text-slate-300 hover:text-white transition-all shadow-sm group cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <ListTodo className="h-4 w-4 text-indigo-400 group-hover:text-indigo-300" />
+                  <span>View task details</span>
+                </div>
+                <ChevronDown className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300" />
+              </button>
+            </div>
+          </ResizablePanel>
+
+          {/* Drag Handle: File Tree <-> Center Workspace */}
+          <ResizableHandle orientation="horizontal" title="Drag to resize File Tree" />
+
+          {/* ── CENTER COLUMN: Questions (Top) + Code Editor (Middle) + Terminal (Bottom) ── */}
+          <ResizablePanel
+            id="panel-center-workspace"
+            defaultSize="57%"
+            minSize="35%"
+            className="flex flex-col min-w-0 bg-[#07090f] overflow-hidden"
           >
-            {/* Panel Tabs Header */}
-            <div className="h-8 bg-[#0e1322] border-b border-slate-800/80 px-3 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-4 text-xs font-medium">
-                <button
-                  onClick={() => setActiveBottomTab("terminal")}
-                  className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 ${
-                    activeBottomTab === "terminal"
-                      ? "border-amber-400 text-white font-semibold"
-                      : "border-transparent text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  <Terminal className="h-3 w-3 text-amber-400" />
-                  <span>Terminal</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveBottomTab("problems")}
-                  className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 ${
-                    activeBottomTab === "problems"
-                      ? "border-amber-400 text-white font-semibold"
-                      : "border-transparent text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  <AlertCircle className="h-3 w-3 text-slate-400" />
-                  <span>Problems 0</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveBottomTab("preview")}
-                  className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
-                    activeBottomTab === "preview"
-                      ? "border-cyan-400 text-white font-semibold"
-                      : "border-transparent text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  <div className="relative flex items-center justify-center">
-                    <Globe className="h-3 w-3 text-cyan-400" />
-                    {isServerRunning && (
-                      <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    )}
-                  </div>
-                  <span>Live Preview</span>
-                  {isServerRunning && (
-                    <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      :5000
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              {/* Console / Preview Toolbar buttons on right */}
-              <div className="flex items-center gap-2">
-                {activeBottomTab === "preview" ? (
-                  <>
-                    <button
-                      onClick={async () => {
-                        if (activeFilePath && activeFileContent) {
-                          try {
-                            await writeProjectFile(activeFilePath, activeFileContent);
-                          } catch {}
-                        }
-                        setIframeReloadKey((k) => k + 1);
-                      }}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] transition-colors cursor-pointer"
-                      title="Reload preview iframe"
-                    >
-                      <RefreshCw className="h-2.5 w-2.5 text-cyan-400" />
-                      <span>Reload</span>
-                    </button>
-
-                    {isServerRunning ? (
-                      <button
-                        onClick={handleStopServer}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 border border-rose-800/40 text-[11px] font-mono transition-colors cursor-pointer"
-                        title="Stop Node.js dev server"
-                      >
-                        <Square className="h-2.5 w-2.5 fill-rose-400 text-rose-400" />
-                        <span>Stop Server</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleStartServer}
-                        disabled={startingServer}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-mono transition-colors cursor-pointer disabled:opacity-50"
-                        title="Start Auth Server on port 5000"
-                      >
-                        <Play className="h-2.5 w-2.5 fill-cyan-300" />
-                        <span>Start Server</span>
-                      </button>
-                    )}
-
-                    {previewUrl && (
-                      <button
-                        onClick={() => {
-                          const url =
-                            (previewUrl || "http://localhost:5000") +
-                            (previewPath === "/" ? "" : previewPath);
-                          window.open(url, "_blank");
-                        }}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors cursor-pointer"
-                        title="Open in new browser tab"
-                      >
-                        <ExternalLink className="h-2.5 w-2.5" />
-                        <span>Open Tab</span>
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => handleRunCode("node", ["test.js"])}
-                      disabled={runningCode}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
-                      title="Execute test suite (no npm install needed)"
-                    >
-                      <Play className="h-2.5 w-2.5 fill-emerald-300" />
-                      <span>node test.js</span>
-                    </button>
-
-                    <button
-                      onClick={() => handleRunCode("npm", ["install"])}
-                      disabled={runningCode}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
-                      title="Install npm dependencies (required before running server.js)"
-                    >
-                      <Plus className="h-2.5 w-2.5" />
-                      <span>npm install</span>
-                    </button>
-
-                    <button
-                      onClick={handleStartServer}
-                      disabled={startingServer}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
-                      title="Start Auth Server on port 5000 and view live preview"
-                    >
-                      <Play className="h-2.5 w-2.5 fill-indigo-300" />
-                      <span>node server.js</span>
-                    </button>
-
-                    <button
-                      onClick={() => setTerminalLogs([])}
-                      className="p-1 hover:text-slate-300 text-slate-500 rounded transition-colors"
-                      title="Clear console"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </>
-                )}
-
-                {/* Maximize / Minimize toggle */}
-                <button
-                  onClick={() => setPanelExpanded((prev) => !prev)}
-                  className="p-1 hover:text-slate-200 text-slate-400 rounded hover:bg-slate-800 transition-colors"
-                  title={panelExpanded ? "Collapse panel" : "Expand panel"}
-                >
-                  {panelExpanded ? (
-                    <Minimize2 className="h-3 w-3" />
-                  ) : (
-                    <Maximize2 className="h-3 w-3" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Panel Tab Content */}
-            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-              {activeBottomTab === "terminal" && (
-                <div className="flex-1 p-3 overflow-y-auto font-mono text-xs text-slate-300 space-y-1 select-text flex flex-col justify-between">
-                  <div className="space-y-1 overflow-y-auto flex-1">
-                    {terminalLogs.map((log, i) => (
-                      <div
-                        key={i}
-                        className={`${
-                          log.includes("✔") || log.includes("[PASS]")
-                            ? "text-emerald-400 font-semibold"
-                            : log.includes("❌") || log.includes("[FAIL]")
-                            ? "text-rose-400 font-semibold"
-                            : log.includes("🎉")
-                            ? "text-amber-300 font-bold"
-                            : log.includes("http")
-                            ? "text-cyan-300"
-                            : log.startsWith("➜")
-                            ? "text-indigo-300 font-bold"
-                            : log.startsWith("=") || log.startsWith("📌")
-                            ? "text-slate-400"
-                            : "text-slate-300"
-                        }`}
-                      >
-                        {log}
-                      </div>
-                    ))}
-
-                    {/* Interactive Terminal Prompt */}
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!terminalInput.trim()) return;
-                        const parts = terminalInput.trim().split(/\s+/);
-                        const cmd = parts[0];
-                        const args = parts.slice(1);
-                        setTerminalInput("");
-                        handleRunCode(cmd, args);
-                      }}
-                      className="flex items-center gap-2 pt-2 mt-1 border-t border-slate-800/60"
-                    >
-                      <span className="text-emerald-400 font-bold">➜</span>
-                      <input
-                        type="text"
-                        value={terminalInput}
-                        onChange={(e) => setTerminalInput(e.target.value)}
-                        placeholder="Run command (e.g. node test.js, node server.js)..."
-                        className="flex-1 bg-transparent text-white font-mono text-xs outline-none placeholder:text-slate-600"
-                      />
-                      <button
-                        type="submit"
-                        disabled={runningCode}
-                        className="px-2 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300 hover:text-white border border-slate-700 hover:bg-slate-700 transition-colors"
-                      >
-                        Execute
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              )}
-
-              {activeBottomTab === "problems" && (
-                <div className="p-3 text-slate-400 py-6 text-center text-xs">
-                  No syntax or linter problems detected in open files.
-                </div>
-              )}
-
-              {activeBottomTab === "preview" && (
-                <LivePreviewView
-                  previewUrl={previewUrl}
-                  serverPort={serverPort}
+            <ResizablePanelGroup orientation="vertical" id="center-vertical-workspace">
+              {/* Top: Questions / Task Header (Resizable!) */}
+              <ResizablePanel
+                id="panel-question"
+                defaultSize={workspaceViewMode === "preview" ? "20%" : "25%"}
+                minSize="10%"
+                maxSize="55%"
+                collapsible={false}
+                className="overflow-hidden bg-[#0c101b]"
+              >
+                <TaskHeader
+                  currentTask={currentTask}
+                  totalTasks={project?.tasks?.length || 3}
+                  currentIndex={currentTaskIndex}
+                  difficulty={project?.difficulty || "Medium"}
+                  activeFilePath={activeFilePath}
+                  onSelectFile={handleSelectFile}
+                  onPrevTask={handlePrevTask}
+                  onNextTask={handleNextTask}
+                  onRunEvaluation={handleRunEvaluation}
+                  evaluating={evaluating}
+                  taskCompleted={taskCompleted}
+                  onRunCode={() => handleRunCode("node", ["test.js"])}
+                  runningCode={runningCode}
+                  onStartServer={handleStartServer}
                   isServerRunning={isServerRunning}
                   startingServer={startingServer}
-                  onStartServer={handleStartServer}
-                  previewPath={previewPath}
-                  onChangePreviewPath={setPreviewPath}
-                  isCompact={true}
+                  previewUrl={previewUrl}
+                  viewMode={workspaceViewMode}
+                  onChangeViewMode={setWorkspaceViewMode}
+                  evalResults={evalResults}
                 />
-              )}
-            </div>
-          </div>
-        </>
-      )}
-    </main>
+              </ResizablePanel>
 
-        {/* ── RIGHT COLUMN: AI Mentor / AI Chatbot ── */}
-        <AiMentor
-          currentTask={currentTask}
-          activeFilePath={activeFilePath}
-          activeFileContent={activeFileContent}
-          externalPrompt={externalAiPrompt}
-          onClearExternalPrompt={() => setExternalAiPrompt(null)}
-        />
+              {/* Drag Handle: Question Part <-> Editor / Preview */}
+              <ResizableHandle orientation="vertical" title="Drag to resize Question / Instructions" />
+
+              {workspaceViewMode === "preview" ? (
+                /* Full Live Preview Canvas View (Not cramped, 100% spacious) */
+                <ResizablePanel
+                  id="panel-full-preview"
+                  defaultSize="80%"
+                  minSize="25%"
+                  className="relative overflow-hidden bg-[#07090f] flex flex-col min-h-0"
+                >
+                  <LivePreviewView
+                    previewUrl={previewUrl}
+                    serverPort={serverPort}
+                    isServerRunning={isServerRunning}
+                    startingServer={startingServer}
+                    onStartServer={handleStartServer}
+                    previewPath={previewPath}
+                    onChangePreviewPath={setPreviewPath}
+                    isCompact={false}
+                  />
+                </ResizablePanel>
+              ) : (
+                <>
+                  {/* Middle: Code Editor or Split View */}
+                  <ResizablePanel
+                    id="panel-editor-area"
+                    defaultSize="47%"
+                    minSize="20%"
+                    className="relative overflow-hidden bg-[#161a26]"
+                  >
+                    {workspaceViewMode === "split" ? (
+                      /* Split View: Resizable Code Editor (Left) & Live Preview (Right) */
+                      <ResizablePanelGroup orientation="horizontal" id="split-view-group">
+                        <ResizablePanel
+                          id="panel-split-code"
+                          defaultSize="50%"
+                          minSize="20%"
+                          className="h-full relative overflow-hidden bg-[#161a26]"
+                        >
+                          <CodeEditor
+                            activePath={activeFilePath}
+                            tabs={openTabs}
+                            onSelectTab={handleSelectTab}
+                            onCloseTab={handleCloseTab}
+                            onContentChange={handleContentChange}
+                            onTriggerAriaNudge={handleAriaPrompt}
+                            initialFiles={project?.files}
+                          />
+                        </ResizablePanel>
+
+                        <ResizableHandle orientation="horizontal" title="Drag to resize Split View" />
+
+                        <ResizablePanel
+                          id="panel-split-preview"
+                          defaultSize="50%"
+                          minSize="20%"
+                          className="h-full relative overflow-hidden bg-[#07090f] flex flex-col"
+                        >
+                          <LivePreviewView
+                            previewUrl={previewUrl}
+                            serverPort={serverPort}
+                            isServerRunning={isServerRunning}
+                            startingServer={startingServer}
+                            onStartServer={handleStartServer}
+                            previewPath={previewPath}
+                            onChangePreviewPath={setPreviewPath}
+                            isCompact={false}
+                          />
+                        </ResizablePanel>
+                      </ResizablePanelGroup>
+                    ) : (
+                      /* Normal Single Code Editor View */
+                      <CodeEditor
+                        activePath={activeFilePath}
+                        tabs={openTabs}
+                        onSelectTab={handleSelectTab}
+                        onCloseTab={handleCloseTab}
+                        onContentChange={handleContentChange}
+                        onTriggerAriaNudge={handleAriaPrompt}
+                        initialFiles={project?.files}
+                      />
+                    )}
+                  </ResizablePanel>
+
+                  {/* Drag Handle: Editor <-> Terminal / Preview */}
+                  <ResizableHandle orientation="vertical" title="Drag to resize Terminal / Console" />
+
+                  {/* Bottom: Terminal / Problems / Live Preview Panel (Resizable!) */}
+                  <ResizablePanel
+                    id="panel-terminal"
+                    panelRef={terminalPanelRef}
+                    defaultSize="28%"
+                    minSize="8%"
+                    maxSize="75%"
+                    collapsible={true}
+                    className="bg-[#0a0d16] flex flex-col overflow-hidden"
+                  >
+                    {/* Panel Tabs Header */}
+                    <div className="h-8 bg-[#0e1322] border-b border-slate-800/80 px-3 flex items-center justify-between shrink-0">
+                      <div className="flex items-center gap-4 text-xs font-medium">
+                        <button
+                          onClick={() => setActiveBottomTab("terminal")}
+                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 ${
+                            activeBottomTab === "terminal"
+                              ? "border-amber-400 text-white font-semibold"
+                              : "border-transparent text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          <Terminal className="h-3 w-3 text-amber-400" />
+                          <span>Terminal</span>
+                        </button>
+
+                        <button
+                          onClick={() => setActiveBottomTab("problems")}
+                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 ${
+                            activeBottomTab === "problems"
+                              ? "border-amber-400 text-white font-semibold"
+                              : "border-transparent text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          <AlertCircle className="h-3 w-3 text-slate-400" />
+                          <span>Problems 0</span>
+                        </button>
+
+                        <button
+                          onClick={() => setActiveBottomTab("preview")}
+                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
+                            activeBottomTab === "preview"
+                              ? "border-cyan-400 text-white font-semibold"
+                              : "border-transparent text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          <div className="relative flex items-center justify-center">
+                            <Globe className="h-3 w-3 text-cyan-400" />
+                            {isServerRunning && (
+                              <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            )}
+                          </div>
+                          <span>Live Preview</span>
+                          {isServerRunning && (
+                            <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              :5000
+                            </span>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Console / Preview Toolbar buttons on right */}
+                      <div className="flex items-center gap-2">
+                        {activeBottomTab === "preview" ? (
+                          <>
+                            <button
+                              onClick={async () => {
+                                if (activeFilePath && activeFileContent) {
+                                  try {
+                                    await writeProjectFile(activeFilePath, activeFileContent);
+                                  } catch {}
+                                }
+                                setIframeReloadKey((k) => k + 1);
+                              }}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] transition-colors cursor-pointer"
+                              title="Reload preview iframe"
+                            >
+                              <RefreshCw className="h-2.5 w-2.5 text-cyan-400" />
+                              <span>Reload</span>
+                            </button>
+
+                            {isServerRunning ? (
+                              <button
+                                onClick={handleStopServer}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 border border-rose-800/40 text-[11px] font-mono transition-colors cursor-pointer"
+                                title="Stop Node.js dev server"
+                              >
+                                <Square className="h-2.5 w-2.5 fill-rose-400 text-rose-400" />
+                                <span>Stop Server</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={handleStartServer}
+                                disabled={startingServer}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-mono transition-colors cursor-pointer disabled:opacity-50"
+                                title="Start Auth Server on port 5000"
+                              >
+                                <Play className="h-2.5 w-2.5 fill-cyan-300" />
+                                <span>Start Server</span>
+                              </button>
+                            )}
+
+                            {previewUrl && (
+                              <button
+                                onClick={() => {
+                                  const url =
+                                    (previewUrl || "http://localhost:5000") +
+                                    (previewPath === "/" ? "" : previewPath);
+                                  window.open(url, "_blank");
+                                }}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors cursor-pointer"
+                                title="Open in new browser tab"
+                              >
+                                <ExternalLink className="h-2.5 w-2.5" />
+                                <span>Open Tab</span>
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleRunCode("node", ["test.js"])}
+                              disabled={runningCode}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
+                              title="Execute test suite (no npm install needed)"
+                            >
+                              <Play className="h-2.5 w-2.5 fill-emerald-300" />
+                              <span>node test.js</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleRunCode("npm", ["install"])}
+                              disabled={runningCode}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
+                              title="Install npm dependencies (required before running server.js)"
+                            >
+                              <Plus className="h-2.5 w-2.5" />
+                              <span>npm install</span>
+                            </button>
+
+                            <button
+                              onClick={handleStartServer}
+                              disabled={startingServer}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
+                              title="Start Auth Server on port 5000 and view live preview"
+                            >
+                              <Play className="h-2.5 w-2.5 fill-indigo-300" />
+                              <span>node server.js</span>
+                            </button>
+
+                            <button
+                              onClick={() => setTerminalLogs([])}
+                              className="p-1 hover:text-slate-300 text-slate-500 rounded transition-colors"
+                              title="Clear console"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </>
+                        )}
+
+                        {/* Maximize / Minimize toggle */}
+                        <button
+                          onClick={toggleTerminalExpand}
+                          className="p-1 hover:text-slate-200 text-slate-400 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+                          title={panelExpanded ? "Collapse panel" : "Expand panel"}
+                        >
+                          {panelExpanded ? (
+                            <Minimize2 className="h-3 w-3" />
+                          ) : (
+                            <Maximize2 className="h-3 w-3" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Panel Tab Content */}
+                    <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+                      {activeBottomTab === "terminal" && (
+                        <div className="flex-1 p-3 overflow-y-auto font-mono text-xs text-slate-300 space-y-1 select-text flex flex-col justify-between">
+                          <div className="space-y-1 overflow-y-auto flex-1">
+                            {terminalLogs.map((log, i) => (
+                              <div
+                                key={i}
+                                className={`${
+                                  log.includes("✔") || log.includes("[PASS]")
+                                    ? "text-emerald-400 font-semibold"
+                                    : log.includes("❌") || log.includes("[FAIL]")
+                                    ? "text-rose-400 font-semibold"
+                                    : log.includes("🎉")
+                                    ? "text-amber-300 font-bold"
+                                    : log.includes("http")
+                                    ? "text-cyan-300"
+                                    : log.startsWith("➜")
+                                    ? "text-indigo-300 font-bold"
+                                    : log.startsWith("=") || log.startsWith("📌")
+                                    ? "text-slate-400"
+                                    : "text-slate-300"
+                                }`}
+                              >
+                                {log}
+                              </div>
+                            ))}
+
+                            {/* Interactive Terminal Prompt */}
+                            <form
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                if (!terminalInput.trim()) return;
+                                const parts = terminalInput.trim().split(/\s+/);
+                                const cmd = parts[0];
+                                const args = parts.slice(1);
+                                setTerminalInput("");
+                                handleRunCode(cmd, args);
+                              }}
+                              className="flex items-center gap-2 pt-2 mt-1 border-t border-slate-800/60"
+                            >
+                              <span className="text-emerald-400 font-bold">➜</span>
+                              <input
+                                type="text"
+                                value={terminalInput}
+                                onChange={(e) => setTerminalInput(e.target.value)}
+                                placeholder="Run command (e.g. node test.js, node server.js)..."
+                                className="flex-1 bg-transparent text-white font-mono text-xs outline-none placeholder:text-slate-600"
+                              />
+                              <button
+                                type="submit"
+                                disabled={runningCode}
+                                className="px-2 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300 hover:text-white border border-slate-700 hover:bg-slate-700 transition-colors"
+                              >
+                                Execute
+                              </button>
+                            </form>
+                          </div>
+                        </div>
+                      )}
+
+                      {activeBottomTab === "problems" && (
+                        <div className="p-3 text-slate-400 py-6 text-center text-xs">
+                          No syntax or linter problems detected in open files.
+                        </div>
+                      )}
+
+                      {activeBottomTab === "preview" && (
+                        <LivePreviewView
+                          previewUrl={previewUrl}
+                          serverPort={serverPort}
+                          isServerRunning={isServerRunning}
+                          startingServer={startingServer}
+                          onStartServer={handleStartServer}
+                          previewPath={previewPath}
+                          onChangePreviewPath={setPreviewPath}
+                          isCompact={true}
+                        />
+                      )}
+                    </div>
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
+          </ResizablePanel>
+
+          {/* Drag Handle: Center Workspace <-> AI Mentor */}
+          <ResizableHandle orientation="horizontal" title="Drag to resize AI Mentor" />
+
+          {/* ── RIGHT COLUMN: AI Mentor / AI Chatbot (Resizable!) ── */}
+          <ResizablePanel
+            id="panel-ai-mentor"
+            defaultSize="25%"
+            minSize="15%"
+            maxSize="45%"
+            collapsible={true}
+            className="bg-[#0b0f19] flex flex-col overflow-hidden"
+          >
+            <AiMentor
+              currentTask={currentTask}
+              activeFilePath={activeFilePath}
+              activeFileContent={activeFileContent}
+              externalPrompt={externalAiPrompt}
+              onClearExternalPrompt={() => setExternalAiPrompt(null)}
+            />
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
 
       {/* ── Task Details Modal / Drawer ── */}
