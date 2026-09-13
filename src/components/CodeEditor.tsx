@@ -7,11 +7,8 @@ import {
   FileCode,
   AlertTriangle,
   Plus,
-  Columns,
   Maximize2,
   Minimize2,
-  Sparkles,
-  Lightbulb,
 } from "lucide-react";
 import { readProjectFile, writeProjectFile } from "@/lib/webcontainer";
 
@@ -129,7 +126,6 @@ export default function CodeEditor({
   const [loadingFile, setLoadingFile] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [showAriaNudge, setShowAriaNudge] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const editorRef = useRef<any>(null);
 
@@ -237,9 +233,6 @@ export default function CodeEditor({
     return path.split("/").pop() || path;
   }
 
-  // Check if Aria Nudge should be shown for the current active file
-  const isPostFile = activePath.endsWith("Post.jsx") || activePath.endsWith("Post.js");
-
   return (
     <div
       className={`w-full h-full flex flex-col bg-[#161a26] relative ${
@@ -304,15 +297,6 @@ export default function CodeEditor({
         {/* Right Toolbar Controls */}
         <div className="flex items-center gap-1 text-slate-400">
           <button
-            onClick={() => setShowAriaNudge((prev) => !prev)}
-            className={`p-1.5 rounded hover:bg-slate-800 transition-colors ${
-              showAriaNudge ? "text-emerald-400" : "text-slate-500 hover:text-slate-300"
-            }`}
-            title="Toggle Aria Smart Nudge"
-          >
-            <Lightbulb className="h-3.5 w-3.5" />
-          </button>
-          <button
             onClick={() => setIsFullscreen((prev) => !prev)}
             className="p-1.5 rounded hover:bg-slate-800 hover:text-white transition-colors"
             title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Editor"}
@@ -368,43 +352,6 @@ export default function CodeEditor({
             onChange={handleEditorChange}
             onMount={handleEditorMount}
           />
-        )}
-
-        {/* Inline Aria Smart Nudge Tooltip (Matching the reference screenshot) */}
-        {showAriaNudge && isPostFile && (
-          <div className="absolute top-20 right-12 z-20 max-w-sm bg-[#131929]/95 backdrop-blur-md border border-emerald-500/30 rounded-xl p-3 shadow-2xl shadow-emerald-950/40 animate-in fade-in slide-in-from-top-2 duration-300">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
-                <div className="h-5 w-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
-                  <span className="text-[10px]">🤖</span>
-                </div>
-                <span>Aria</span>
-              </div>
-              <button
-                onClick={() => setShowAriaNudge(false)}
-                className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                title="Dismiss hint"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-200 leading-relaxed mb-3">
-              This effect runs on mount, but not when the id changes.
-            </p>
-
-            <button
-              onClick={() =>
-                onTriggerAriaNudge?.(
-                  "Explain why this effect runs on mount, but not when the id changes, and how to fix the dependency array."
-                )
-              }
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-medium transition-all cursor-pointer group"
-            >
-              <Lightbulb className="h-3.5 w-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
-              <span>Think: dependency array</span>
-            </button>
-          </div>
         )}
       </div>
     </div>

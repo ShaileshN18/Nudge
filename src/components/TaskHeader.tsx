@@ -33,6 +33,8 @@ interface TaskHeaderProps {
   onRunEvaluation: () => void;
   evaluating: boolean;
   taskCompleted: boolean;
+  onRunCode?: () => void;
+  runningCode?: boolean;
 }
 
 export default function TaskHeader({
@@ -47,11 +49,13 @@ export default function TaskHeader({
   onRunEvaluation,
   evaluating,
   taskCompleted,
+  onRunCode,
+  runningCode = false,
 }: TaskHeaderProps) {
   // Extract or fall back target files
   const targetFiles = currentTask.targetFiles && currentTask.targetFiles.length > 0
     ? currentTask.targetFiles
-    : ["Post.jsx", "postRoutes.js", "Post.js"];
+    : ["src/models/User.js", "src/controllers/authController.js", "src/middleware/auth.js"];
 
   const getFileBadgeColor = (filename: string) => {
     const ext = filename.split(".").pop()?.toLowerCase();
@@ -157,6 +161,27 @@ export default function TaskHeader({
             </button>
           </div>
 
+          {onRunCode && (
+            <button
+              onClick={onRunCode}
+              disabled={runningCode}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
+              title="Run code with Node.js in WebContainer (node test.js)"
+            >
+              {runningCode ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  <span>Running...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="h-3.5 w-3.5 fill-white" />
+                  <span>Run Code</span>
+                </>
+              )}
+            </button>
+          )}
+
           <button
             onClick={onRunEvaluation}
             disabled={evaluating}
@@ -170,7 +195,7 @@ export default function TaskHeader({
               </>
             ) : (
               <>
-                <Play className="h-3.5 w-3.5 fill-white" />
+                <CheckCircle2 className="h-3.5 w-3.5" />
                 <span>Evaluate</span>
               </>
             )}

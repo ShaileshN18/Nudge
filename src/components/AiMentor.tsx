@@ -7,7 +7,6 @@ import {
   RotateCcw,
   Bot,
   User,
-  Lightbulb,
   FileCode,
   HelpCircle,
   Bug,
@@ -52,10 +51,10 @@ export default function AiMentor({
       content: `### 👋 Hi, I'm your AI Mentor!
 
 I'm here to guide you through **Task ${currentTask?.order || 1}: ${
-        currentTask?.title || "Display a single blog post"
+        currentTask?.title || "Define User Model & Password Hashing"
       }**.
 
-Ask me for progressive hints, code reviews, or architectural explanations whenever you get stuck!`,
+Ask me for code reviews, architectural explanations, or debugging help whenever you need guidance!`,
       timestamp: new Date(),
     },
   ]);
@@ -160,7 +159,7 @@ Ask me for progressive hints, code reviews, or architectural explanations whenev
         role: "assistant",
         content: `### 🔄 Chat reset!
 Ready to assist with **Task ${currentTask?.order || 1}: ${
-          currentTask?.title || "Display a single blog post"
+          currentTask?.title || "Define User Model & Password Hashing"
         }**. What would you like to explore?`,
         timestamp: new Date(),
       },
@@ -168,10 +167,10 @@ Ready to assist with **Task ${currentTask?.order || 1}: ${
   };
 
   const quickPrompts = [
-    { label: "Give me a hint", prompt: "Give me a hint for this task without giving away the full answer", icon: Lightbulb },
-    { label: "Review active file", prompt: "Please review my active file and let me know if I'm on the right track", icon: FileCode },
-    { label: "Explain task", prompt: "Can you explain the requirements and expected data flow for this task?", icon: HelpCircle },
-    { label: "Why is code failing?", prompt: "Why might this component fail to re-render or fetch when the route changes?", icon: Bug },
+    { label: "Review active file", prompt: "Please review my active file and identify any syntax or logical issues", icon: FileCode },
+    { label: "Explain requirements", prompt: "Can you explain the requirements and expected data flow for this task?", icon: HelpCircle },
+    { label: "Why is code failing?", prompt: "Why might my tests or route handlers fail?", icon: Bug },
+    { label: "Security best practices", prompt: "What are the security best practices for JWT tokens and password salts?", icon: Sparkles },
   ];
 
   return (

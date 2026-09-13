@@ -23,18 +23,13 @@ import {
   X,
   User as UserIcon,
   LogOut,
+  Cpu,
+  Lock,
+  KeyRound,
+  FileText,
+  Activity,
 } from "lucide-react";
-
-interface ProjectItem {
-  _id: string;
-  slug: string;
-  title: string;
-  description: string;
-  track: "frontend" | "backend" | "fullstack";
-  difficulty: "beginner" | "intermediate" | "advanced";
-  tasksCount?: number;
-  tasks?: any[];
-}
+import { authSeedProject, type SeedProject } from "@/lib/seedProject";
 
 interface UserProfile {
   id: string;
@@ -55,64 +50,11 @@ interface DbStatusResponse {
   suggestion?: string;
 }
 
-const fallbackProjects: ProjectItem[] = [
-  {
-    _id: "devblog",
-    slug: "devblog",
-    title: "DevBlog",
-    description:
-      "Full-stack React and Express blog application with dynamic routes, markdown rendering, and MongoDB.",
-    track: "fullstack",
-    difficulty: "intermediate",
-    tasksCount: 18,
-  },
-  {
-    _id: "build-express-mongodb-auth",
-    slug: "build-express-mongodb-auth",
-    title: "Build JWT Auth with Express & Mongoose",
-    description:
-      "Implement user authentication, password hashing with bcrypt, and JWT middleware token validation.",
-    track: "backend",
-    difficulty: "beginner",
-    tasksCount: 3,
-  },
-  {
-    _id: "2",
-    slug: "nextjs-task-dashboard",
-    title: "Realtime Next.js Task Attempt Evaluator",
-    description:
-      "Build an automated task execution feedback loop with App Router API routes and MongoDB Atlas.",
-    track: "fullstack",
-    difficulty: "intermediate",
-    tasksCount: 1,
-  },
-  {
-    _id: "3",
-    slug: "react-code-editor-component",
-    title: "Interactive Code Workspace UI",
-    description:
-      "Build a multi-file tabs component with live output execution and evaluation criteria badges.",
-    track: "frontend",
-    difficulty: "intermediate",
-    tasksCount: 1,
-  },
-  {
-    _id: "react-task-board",
-    slug: "react-task-board",
-    title: "Interactive React Task Kanban Board",
-    description: "Build an interactive Kanban board with drag-and-drop task columns, state management, and real-time status updates.",
-    track: "frontend",
-    difficulty: "intermediate",
-    tasksCount: 1,
-  },
-];
-
 export default function Home() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [dbStatus, setDbStatus] = useState<DbStatusResponse | null>(null);
-  const [projects, setProjects] = useState<ProjectItem[]>(fallbackProjects);
-  const [selectedTrack, setSelectedTrack] = useState<string>("all");
+  const [project, setProject] = useState<SeedProject>(authSeedProject);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showDbModal, setShowDbModal] = useState(false);
@@ -124,16 +66,10 @@ export default function Home() {
       const healthData = await healthRes.json();
       setDbStatus(healthData);
 
-      if (healthData.status === "ok") {
-        const projRes = await fetch("/api/projects");
-        const projData = await projRes.json();
-        if (projData.success && projData.data && projData.data.length > 0) {
-          const formatted = projData.data.map((p: any) => ({
-            ...p,
-            tasksCount: p.tasks ? p.tasks.length : p.tasksCount || 3,
-          }));
-          setProjects(formatted);
-        }
+      const projRes = await fetch("/api/projects");
+      const projData = await projRes.json();
+      if (projData.success && projData.data && projData.data.length > 0) {
+        setProject(projData.data[0]);
       }
     } catch (err: any) {
       console.error("Health check error:", err);
@@ -173,34 +109,32 @@ export default function Home() {
       .catch((err) => console.error("Auth check error:", err));
   }, []);
 
-  const filteredProjects = projects.filter((p) =>
-    selectedTrack === "all" ? true : p.track === selectedTrack
-  );
-
   const isConnected = dbStatus?.status === "ok";
-  const firstProjectSlug = filteredProjects[0]?.slug || "build-express-mongodb-auth";
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#090d16] text-slate-100 selection:bg-indigo-500/30">
-      {/* Background Decorative Gradients */}
+    <div className="min-h-screen flex flex-col bg-[#07090f] text-slate-100 selection:bg-indigo-500/30">
+      {/* Background Decorative Mesh Gradients */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-40 -left-40 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl" />
-        <div className="absolute top-1/3 -right-40 w-96 h-96 bg-blue-600/15 rounded-full blur-3xl" />
-        <div className="absolute -bottom-20 left-1/3 w-96 h-96 bg-cyan-600/10 rounded-full blur-3xl" />
+        <div className="absolute -top-40 -left-40 w-[550px] h-[550px] bg-indigo-600/15 rounded-full blur-[120px]" />
+        <div className="absolute top-1/3 -right-40 w-[550px] h-[550px] bg-blue-600/15 rounded-full blur-[120px]" />
+        <div className="absolute -bottom-20 left-1/3 w-[600px] h-[600px] bg-cyan-600/10 rounded-full blur-[140px]" />
       </div>
 
       {/* Navigation Bar */}
-      <header className="sticky top-0 z-40 bg-[#090d16]/80 backdrop-blur-md border-b border-slate-800/80 px-6 py-4">
+      <header className="sticky top-0 z-40 bg-[#07090f]/80 backdrop-blur-xl border-b border-slate-800/80 px-6 py-3.5">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-blue-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-500 via-blue-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
               <Code2 className="h-6 w-6 text-white" />
             </div>
             <div>
-              <span className="text-xl font-bold tracking-tight text-white">Nudge</span>
-              <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                Next.js Platform
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xl font-extrabold tracking-tight text-white">Nudge</span>
+                <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-semibold">
+                  v2.0 Platform
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 font-medium">In-Browser Code Execution & Guided Engineering</p>
             </div>
           </div>
 
@@ -208,11 +142,11 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowDbModal(true)}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 hover:bg-slate-800/90 border border-slate-700/60 text-xs transition-all cursor-pointer shadow-sm group"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#0e1322] hover:bg-[#131929] border border-slate-800 text-xs transition-all cursor-pointer shadow-sm group"
               title="Click to view database details"
             >
               <Database className="h-3.5 w-3.5 text-indigo-400 group-hover:text-indigo-300" />
-              <span className="text-slate-400">Atlas DB Status:</span>
+              <span className="text-slate-400 hidden sm:inline">DB Status:</span>
 
               {loading ? (
                 <span className="text-amber-400 font-medium flex items-center gap-1">
@@ -221,12 +155,12 @@ export default function Home() {
               ) : isConnected ? (
                 <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
                   <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                  Connected ({dbStatus?.dbType?.includes("Atlas") ? "Atlas" : "Local"})
+                  Connected ({dbStatus?.dbType?.includes("Atlas") ? "Atlas Cloud" : "Local"})
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-rose-400 font-medium">
                   <span className="h-2 w-2 rounded-full bg-rose-400" />
-                  Atlas Error
+                  Disconnected
                 </span>
               )}
             </button>
@@ -234,7 +168,7 @@ export default function Home() {
             <button
               onClick={() => fetchHealthAndProjects()}
               disabled={refreshing}
-              className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition-all border border-slate-700/50"
+              className="p-2 rounded-lg bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white transition-all border border-slate-800"
               title="Refresh DB status"
             >
               <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin text-indigo-400" : ""}`} />
@@ -242,31 +176,30 @@ export default function Home() {
 
             {/* Auth Buttons */}
             {currentUser ? (
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/50 text-xs text-slate-200">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800 text-xs text-slate-200">
                   <UserIcon className="h-3.5 w-3.5 text-indigo-400" />
                   <span className="font-medium">{currentUser.name}</span>
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-rose-400 text-xs transition-colors"
+                  className="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-rose-400 text-xs transition-colors"
                   title="Log out"
                 >
-                  <LogOut className="h-3.5 w-3.5" />
-                  <span>Logout</span>
+                  <LogOut className="h-4 w-4" />
                 </button>
               </div>
             ) : (
               <div className="flex items-center gap-2">
                 <Link
                   href="/login"
-                  className="px-3.5 py-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-medium transition-colors"
+                  className="px-3 py-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-medium transition-colors"
                 >
                   Log In
                 </Link>
                 <Link
                   href="/signup"
-                  className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all shadow-sm shadow-indigo-600/30"
+                  className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold border border-slate-700 transition-all"
                 >
                   Sign Up
                 </Link>
@@ -274,27 +207,27 @@ export default function Home() {
             )}
 
             <Link
-              href={`/project/${firstProjectSlug}`}
-              className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-all shadow-md shadow-indigo-600/25"
+              href="/project/build-auth"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/25"
             >
               <Play className="h-3.5 w-3.5 fill-white" />
-              <span>Start Learning</span>
+              <span>Launch Workspace</span>
             </Link>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-10 space-y-14">
-        {/* DB Connection Status Banner (if error or information) */}
+      {/* Main Container */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-12 space-y-16">
+        {/* DB Error Banner if connection fails */}
         {!loading && !isConnected && (
-          <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-800/50 text-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="p-4 rounded-xl bg-rose-950/20 border border-rose-800/40 text-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-rose-400 mt-0.5 shrink-0" />
               <div>
-                <h4 className="font-semibold text-rose-300 text-sm">MongoDB Connection Attention Required</h4>
-                <p className="text-xs text-rose-300/80 mt-1">
-                  {dbStatus?.suggestion || dbStatus?.error || "Unable to reach MongoDB. Check your credentials in .env"}
+                <h4 className="font-semibold text-rose-300 text-sm">MongoDB Connection Notice</h4>
+                <p className="text-xs text-rose-300/80 mt-0.5">
+                  {dbStatus?.suggestion || dbStatus?.error || "Unable to reach MongoDB. In-memory seed project is actively serving the workspace."}
                 </p>
               </div>
             </div>
@@ -302,181 +235,237 @@ export default function Home() {
               onClick={() => setShowDbModal(true)}
               className="px-3 py-1.5 rounded-lg bg-rose-600/30 hover:bg-rose-600/50 text-rose-200 text-xs font-semibold border border-rose-500/40 shrink-0"
             >
-              View Connection Config
+              View Connection Details
             </button>
           </div>
         )}
 
-        {/* Hero Banner */}
-        <section className="text-center space-y-6 max-w-3xl mx-auto pt-4">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-950/40 border border-indigo-500/30 text-indigo-300 text-xs font-medium backdrop-blur-sm">
+        {/* Hero Section */}
+        <section className="text-center space-y-6 max-w-3xl mx-auto pt-6">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-950/40 border border-indigo-500/30 text-indigo-300 text-xs font-semibold backdrop-blur-md shadow-inner">
             <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
-            Fullstack Next.js + MongoDB Architecture Online
+            <span>Interactive Node.js WebContainer Runtime Online</span>
           </div>
 
-          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight leading-tight text-white">
-            Master Fullstack Development with{" "}
-            <span className="bg-gradient-to-r from-indigo-400 via-blue-400 to-cyan-400 bg-clip-text text-transparent">
-              Guided Interactive Tasks
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.15] text-white">
+            Build Production Auth.{" "}
+            <span className="bg-gradient-to-r from-indigo-400 via-blue-400 to-cyan-300 bg-clip-text text-transparent">
+              Run It in Real Time.
             </span>
           </h1>
 
-          <p className="text-base sm:text-lg text-slate-400 leading-relaxed">
-            Nudge gives you step-by-step programming tasks, automated evaluation criteria, and structured project code bases to level up your engineering skills.
+          <p className="text-base sm:text-lg text-slate-300 leading-relaxed max-w-2xl mx-auto">
+            Zero setup required. Write code in an authentic VS Code Monaco editor, execute real Node.js test suites in your browser, and build a full production authentication service step-by-step.
           </p>
 
-          {/* Hero Call to Action Buttons */}
-          <div className="flex items-center justify-center gap-3 pt-2">
+          {/* CTA Buttons */}
+          <div className="flex items-center justify-center gap-4 pt-2">
             <Link
-              href={`/project/${firstProjectSlug}`}
-              className="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all group"
+              href="/project/build-auth"
+              className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 flex items-center gap-2 transition-all hover:scale-[1.02]"
             >
               <Play className="h-4 w-4 fill-white" />
-              <span>Start Learning Now</span>
-              <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+              <span>Launch Seed Project</span>
+              <ArrowRight className="h-4 w-4 ml-1" />
             </Link>
             <a
-              href="#catalog"
-              className="px-5 py-3 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white font-semibold text-sm border border-slate-700/60 transition-all"
+              href="#seed-project"
+              className="px-5 py-3.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white font-semibold text-sm border border-slate-700/80 transition-all"
             >
-              Explore Catalog
+              Inspect Architecture
             </a>
           </div>
         </section>
 
-        {/* Mongoose Models Overview Cards */}
+        {/* Featured Seed Project Section */}
+        <section id="seed-project" className="space-y-6 pt-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                <h2 className="text-2xl font-extrabold text-white tracking-tight">Active Seed Project</h2>
+              </div>
+              <p className="text-sm text-slate-400 mt-1">
+                Complete, self-contained project with verified executable files and test suites.
+              </p>
+            </div>
+            <span className="text-xs font-mono px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-semibold self-start sm:self-auto">
+              1 Ready-to-Run Project
+            </span>
+          </div>
+
+          {/* Main Project Card */}
+          <div className="bg-gradient-to-b from-[#0e1322] to-[#0a0e19] border border-slate-800/90 hover:border-slate-700 rounded-2xl p-6 lg:p-8 space-y-8 shadow-2xl relative overflow-hidden group">
+            {/* Top Row: Meta Tags & Title */}
+            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
+              <div className="space-y-3 max-w-3xl">
+                <div className="flex items-center flex-wrap gap-2">
+                  <span className="text-xs uppercase font-bold tracking-wider px-2.5 py-1 rounded-md bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+                    Backend Service
+                  </span>
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20 capitalize">
+                    {project.difficulty} Difficulty
+                  </span>
+                  <span className="text-xs font-mono px-2.5 py-1 rounded-md bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                    Node.js + Express
+                  </span>
+                  <span className="text-xs font-mono px-2.5 py-1 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                    JWT + PBKDF2/Bcrypt
+                  </span>
+                </div>
+
+                <h3 className="text-2xl sm:text-3xl font-bold text-white tracking-tight group-hover:text-indigo-200 transition-colors">
+                  {project.title}
+                </h3>
+
+                <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
+                  {project.description}
+                </p>
+              </div>
+
+              {/* Action Button */}
+              <div className="shrink-0">
+                <Link
+                  href="/project/build-auth"
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 transition-all hover:scale-[1.02]"
+                >
+                  <Play className="h-4 w-4 fill-white" />
+                  <span>Open Interactive Workspace</span>
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
+            </div>
+
+            {/* Middle: 3 Guided Tasks Grid */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Structured Engineering Milestones ({project.tasks?.length || 3} Tasks)
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {(project.tasks || []).map((t) => (
+                  <div
+                    key={t.order}
+                    className="p-4 rounded-xl bg-[#131929]/70 border border-slate-800/80 space-y-2 hover:border-slate-700 transition-all"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-mono font-bold text-indigo-400">
+                        TASK 0{t.order}
+                      </span>
+                      <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    </div>
+                    <h5 className="text-sm font-semibold text-white leading-snug">{t.title}</h5>
+                    <p className="text-xs text-slate-400 leading-normal line-clamp-2">{t.description}</p>
+                    <div className="pt-2 flex items-center gap-1.5 text-[11px] font-mono text-slate-500 truncate">
+                      <FileCode className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate">{t.targetFiles?.[0]}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Bottom: File Structure Preview & Execution Capabilities */}
+            <div className="pt-4 border-t border-slate-800/80 grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">
+                  Runnable Project Files Included
+                </h4>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    "package.json",
+                    "server.js",
+                    "src/models/User.js",
+                    "src/controllers/authController.js",
+                    "src/routes/auth.js",
+                    "src/middleware/auth.js",
+                    "src/utils/jwt.js",
+                    "test.js",
+                    ".env",
+                    "README.md",
+                  ].map((file) => (
+                    <span
+                      key={file}
+                      className="px-2.5 py-1 rounded-md bg-[#131826] border border-slate-800 font-mono text-xs text-slate-300 flex items-center gap-1.5"
+                    >
+                      <FileText className="h-3 w-3 text-indigo-400" />
+                      {file}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-[#080c16] p-3.5 rounded-xl border border-slate-800/90 space-y-1.5 text-xs font-mono text-slate-300">
+                <div className="flex items-center justify-between text-slate-500 border-b border-slate-800/80 pb-1 text-[11px]">
+                  <span>Terminal Quick Commands</span>
+                  <span className="text-emerald-400">Node v20+</span>
+                </div>
+                <p className="text-slate-400">
+                  <span className="text-emerald-400 font-bold">➜</span> node test.js{" "}
+                  <span className="text-slate-600">// Runs 16 automated assertions</span>
+                </p>
+                <p className="text-slate-400">
+                  <span className="text-indigo-400 font-bold">➜</span> node server.js{" "}
+                  <span className="text-slate-600">// Starts Auth HTTP server on port 5000</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Platform Architecture & Features */}
         <section className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Layers className="h-5 w-5 text-indigo-400" />
-              <h2 className="text-xl font-bold text-white">Configured Database Models</h2>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              <span>{dbStatus?.collections?.length || 4} Mongoose Collections Active</span>
-            </div>
+          <div className="text-center space-y-2 max-w-2xl mx-auto">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+              Built for Modern Software Engineers
+            </h2>
+            <p className="text-sm text-slate-400">
+              Everything you need to write, test, inspect, and evaluate backend services without context switching.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               {
-                title: "User Model",
-                schema: "src/models/User.ts",
-                desc: "User profiles, emails, and password hashes.",
-                icon: ShieldCheck,
-                color: "text-blue-400",
-                badge: "users",
-              },
-              {
-                title: "Project Model",
-                schema: "src/models/Project.ts",
-                desc: "Guided tracks, embedded tasks & file templates.",
-                icon: FolderTree,
+                icon: Cpu,
                 color: "text-indigo-400",
-                badge: "projects",
+                badge: "WebContainer",
+                title: "In-Browser Node Runtime",
+                desc: "Runs true Node.js microservices directly inside WebAssembly. No spinning up remote containers.",
               },
               {
-                title: "UserProject Model",
-                schema: "src/models/UserProject.ts",
-                desc: "User code state and task completion progress.",
-                icon: FileCode,
-                color: "text-cyan-400",
-                badge: "userprojects",
-              },
-              {
-                title: "TaskAttempt Model",
-                schema: "src/models/TaskAttempt.ts",
-                desc: "Task pass/fail statuses and feedback logs.",
                 icon: Terminal,
                 color: "text-emerald-400",
-                badge: "taskattempts",
+                badge: "Live Terminal",
+                title: "Instant Code Execution",
+                desc: "Execute test scripts with live streaming stdout/stderr, colorized logs, and exit code reporting.",
               },
-            ].map((model, idx) => (
+              {
+                icon: FolderTree,
+                color: "text-cyan-400",
+                badge: "File System",
+                title: "Interactive File Tree",
+                desc: "Create, rename, delete files and folders in real time with auto-sync to WebContainer.",
+              },
+              {
+                icon: Sparkles,
+                color: "text-purple-400",
+                badge: "AI Copilot",
+                title: "Context-Aware AI Mentor",
+                desc: "Get instant code reviews, security best practice audits, and debugging breakdowns.",
+              },
+            ].map((feature, idx) => (
               <div
                 key={idx}
-                className="bg-slate-900/60 border border-slate-800/80 hover:border-slate-700/80 p-5 rounded-xl space-y-3 transition-all backdrop-blur-sm shadow-sm"
+                className="bg-[#0e1322]/70 border border-slate-800/80 hover:border-slate-700/80 p-5 rounded-xl space-y-3 transition-all backdrop-blur-sm"
               >
                 <div className="flex items-center justify-between">
-                  <model.icon className={`h-6 w-6 ${model.color}`} />
-                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700/70">
-                    {model.badge}
+                  <feature.icon className={`h-6 w-6 ${feature.color}`} />
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-900 text-indigo-300 border border-slate-800">
+                    {feature.badge}
                   </span>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-white text-base">{model.title}</h3>
-                  <p className="text-xs font-mono text-slate-400 mt-1 truncate">{model.schema}</p>
-                </div>
-                <p className="text-xs text-slate-400 leading-normal">{model.desc}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Project Catalog & Tracks */}
-        <section id="catalog" className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold text-white">Project Catalog</h2>
-              <p className="text-sm text-slate-400">Select a learning track to open the interactive IDE.</p>
-            </div>
-
-            {/* Track Filter Buttons */}
-            <div className="flex items-center gap-1.5 p-1 bg-slate-900/80 border border-slate-800 rounded-lg text-xs font-medium">
-              {["all", "frontend", "backend", "fullstack"].map((track) => (
-                <button
-                  key={track}
-                  onClick={() => setSelectedTrack(track)}
-                  className={`px-3 py-1.5 rounded-md capitalize transition-all ${
-                    selectedTrack === track
-                      ? "bg-indigo-600 text-white font-semibold shadow-sm"
-                      : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  {track}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredProjects.map((project) => (
-              <div
-                key={project._id}
-                className="bg-slate-900/70 border border-slate-800 hover:border-slate-700/90 p-6 rounded-2xl flex flex-col justify-between space-y-6 group transition-all backdrop-blur-sm hover:shadow-lg hover:shadow-indigo-500/5"
-              >
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs uppercase font-semibold tracking-wider px-2.5 py-1 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                      {project.track}
-                    </span>
-                    <span className="text-xs text-slate-400 capitalize">
-                      {project.difficulty}
-                    </span>
-                  </div>
-
-                  <div>
-                    <h3 className="text-lg font-bold text-white group-hover:text-indigo-300 transition-colors">
-                      {project.title}
-                    </h3>
-                    <p className="text-sm text-slate-400 mt-2 leading-relaxed">
-                      {project.description}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                  <span className="flex items-center gap-1.5">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    {project.tasks?.length || project.tasksCount || 0} Guided Tasks
-                  </span>
-                  <Link
-                    href={`/projects/${project._id || project.slug}`}
-                    className="flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 font-semibold group-hover:translate-x-1 transition-all"
-                  >
-                    <span>Open Project</span>
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
-                </div>
+                <h3 className="font-bold text-white text-base">{feature.title}</h3>
+                <p className="text-xs text-slate-400 leading-relaxed">{feature.desc}</p>
               </div>
             ))}
           </div>
@@ -485,8 +474,8 @@ export default function Home() {
 
       {/* Database Details & Configuration Modal */}
       {showDbModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-[#0f172a] border border-slate-700 rounded-2xl max-w-xl w-full p-6 space-y-5 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#0e1322] border border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-5 shadow-2xl relative">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-2.5">
                 <Database className="h-5 w-5 text-indigo-400" />
@@ -502,16 +491,16 @@ export default function Home() {
 
             {/* Status Indicators */}
             <div className="space-y-3">
-              <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
+              <div className="p-3.5 rounded-xl bg-[#090d16] border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400">Status:</span>
+                  <span className="text-slate-400">Connection Status:</span>
                   {isConnected ? (
                     <span className="text-emerald-400 font-semibold flex items-center gap-1">
                       <Check className="h-3.5 w-3.5" /> Connected & Initialized
                     </span>
                   ) : (
                     <span className="text-rose-400 font-semibold flex items-center gap-1">
-                      <AlertCircle className="h-3.5 w-3.5" /> Disconnected
+                      <AlertCircle className="h-3.5 w-3.5" /> Disconnected (Fallback active)
                     </span>
                   )}
                 </div>
@@ -551,13 +540,11 @@ export default function Home() {
                 <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Configuring MongoDB in .env
                 </h4>
-                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs font-mono text-slate-300 space-y-2">
-                  <p className="text-slate-500 text-[11px]"># Option 1: Local MongoDB (Default active)</p>
-                  <p className="text-emerald-400">MONGODB_URI=mongodb://127.0.0.1:27017/nudge</p>
-                  <p className="text-slate-500 text-[11px] mt-2"># Option 2: MongoDB Atlas Cloud</p>
-                  <p className="text-cyan-400 text-[11px] break-all">
-                    MONGODB_URI=mongodb+srv://&lt;username&gt;:&lt;password&gt;@cluster0.abcde.mongodb.net/nudge?retryWrites=true&amp;w=majority
-                  </p>
+                <div className="bg-[#080b14] p-3 rounded-lg border border-slate-800 text-xs font-mono text-slate-300 space-y-2">
+                  <p className="text-slate-500 text-[11px]"># Active connection string</p>
+                  <p className="text-emerald-400 break-all">MONGODB_URI=mongodb+srv://...mongodb.net</p>
+                  <p className="text-slate-500 text-[11px] mt-2"># JWT Secret key</p>
+                  <p className="text-cyan-400">JWT_SECRET=nudge_super_secret_jwt_key_2026_dev</p>
                 </div>
               </div>
             </div>
@@ -578,8 +565,8 @@ export default function Home() {
       )}
 
       {/* Footer */}
-      <footer className="bg-[#090d16]/90 border-t border-slate-800/80 py-8 px-6 text-center text-xs text-slate-500">
-        <p>© 2026 Nudge Platform. Built with Next.js App Router & Mongoose.</p>
+      <footer className="bg-[#07090f]/90 border-t border-slate-800/80 py-8 px-6 text-center text-xs text-slate-500">
+        <p>© 2026 Nudge Platform. Built with Next.js App Router, WebContainer & Mongoose.</p>
       </footer>
     </div>
   );
