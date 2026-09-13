@@ -29,7 +29,12 @@ import {
   FileText,
   Activity,
 } from "lucide-react";
-import { authSeedProject, type SeedProject } from "@/lib/seedProject";
+import {
+  authSeedProject,
+  feedbackBoardSeedProject,
+  allSeedProjects,
+  type SeedProject,
+} from "@/lib/seedProject";
 
 interface UserProfile {
   id: string;
@@ -54,10 +59,16 @@ export default function Home() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [dbStatus, setDbStatus] = useState<DbStatusResponse | null>(null);
-  const [project, setProject] = useState<SeedProject>(authSeedProject);
+  const [projects, setProjects] = useState<SeedProject[]>(allSeedProjects);
+  const [selectedSlug, setSelectedSlug] = useState<string>("feedback-board");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showDbModal, setShowDbModal] = useState(false);
+
+  const project =
+    projects.find((p) => p.slug === selectedSlug) ||
+    projects[0] ||
+    feedbackBoardSeedProject;
 
   const fetchHealthAndProjects = async () => {
     setRefreshing(true);
@@ -69,7 +80,7 @@ export default function Home() {
       const projRes = await fetch("/api/projects");
       const projData = await projRes.json();
       if (projData.success && projData.data && projData.data.length > 0) {
-        setProject(projData.data[0]);
+        setProjects(projData.data);
       }
     } catch (err: any) {
       console.error("Health check error:", err);
@@ -111,8 +122,8 @@ export default function Home() {
 
   const isConnected = dbStatus?.status === "ok";
   const workspaceUrl = currentUser
-    ? "/project/build-auth"
-    : "/login?redirect=/project/build-auth";
+    ? `/project/${project.slug}`
+    : `/login?redirect=/project/${encodeURIComponent(project.slug)}`;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#07090f] text-slate-100 selection:bg-indigo-500/30">
@@ -276,7 +287,7 @@ export default function Home() {
               ) : (
                 <Lock className="h-4 w-4 text-amber-300" />
               )}
-              <span>{currentUser ? "Launch Seed Project" : "Log In to Launch Project"}</span>
+              <span>{currentUser ? `Launch ${project.title}` : `Log In to Launch ${project.title}`}</span>
               <ArrowRight className="h-4 w-4 ml-1" />
             </Link>
             <a
@@ -288,21 +299,35 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Featured Seed Project Section */}
+        {/* Featured Projects Section */}
         <section id="seed-project" className="space-y-6 pt-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
             <div>
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                <h2 className="text-2xl font-extrabold text-white tracking-tight">Active Seed Project</h2>
+                <h2 className="text-2xl font-extrabold text-white tracking-tight">Active Projects</h2>
               </div>
               <p className="text-sm text-slate-400 mt-1">
-                Complete, self-contained project with verified executable files and test suites.
+                Complete, self-contained workspaces with executable runtimes, pre-built frontends, and automated tests.
               </p>
             </div>
-            <span className="text-xs font-mono px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-semibold self-start sm:self-auto">
-              1 Ready-to-Run Project
-            </span>
+            
+            {/* Project Switcher Tabs */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              {projects.map((p) => (
+                <button
+                  key={p.slug}
+                  onClick={() => setSelectedSlug(p.slug)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    project.slug === p.slug
+                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                      : "bg-slate-900/90 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800"
+                  }`}
+                >
+                  {p.title}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Main Project Card */}
@@ -311,8 +336,8 @@ export default function Home() {
             <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
               <div className="space-y-3 max-w-3xl">
                 <div className="flex items-center flex-wrap gap-2">
-                  <span className="text-xs uppercase font-bold tracking-wider px-2.5 py-1 rounded-md bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-                    Backend Service
+                  <span className="text-xs uppercase font-bold tracking-wider px-2.5 py-1 rounded-md bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 capitalize">
+                    {project.track} Project
                   </span>
                   <span className="text-xs font-medium px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20 capitalize">
                     {project.difficulty} Difficulty
@@ -321,7 +346,7 @@ export default function Home() {
                     Node.js + Express
                   </span>
                   <span className="text-xs font-mono px-2.5 py-1 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20">
-                    JWT + PBKDF2/Bcrypt
+                    {project.slug === "feedback-board" ? "MongoDB + Mongoose" : "JWT + PBKDF2/Bcrypt"}
                   </span>
                 </div>
 

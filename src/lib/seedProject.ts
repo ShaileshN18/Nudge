@@ -1064,3 +1064,1343 @@ node server.js
     },
   ],
 };
+
+export const feedbackBoardSeedProject: SeedProject = {
+  _id: "feedback-board",
+  slug: "feedback-board",
+  title: "Full-Stack Feedback Board",
+  description:
+    "Build a production-style REST API for a community feedback board using Node.js, Express, MongoDB, and Mongoose. The frontend is already pre-built and live; implement the endpoints to fetch, create, and upvote feedback items.",
+  track: "fullstack",
+  difficulty: "beginner",
+  tasks: [
+    {
+      order: 1,
+      title: "Implement GET /api/feedback",
+      description:
+        "Connect the feedback list to the database by implementing the GET /api/feedback route handler. The endpoint must retrieve all saved feedback entries from the database and return them as a JSON array.",
+      goal: "Fetch and return all stored feedback items from the database in descending order.",
+      targetFiles: ["backend/src/routes/feedback.js", "backend/src/models/Feedback.js"],
+      evaluationCriteria: [
+        "GET /api/feedback responds with HTTP status 200",
+        "Response body is an array of feedback documents",
+        "Each feedback item contains title, description, category, and votes",
+        "Feedback items are sorted in descending order",
+      ],
+    },
+    {
+      order: 2,
+      title: "Implement POST /api/feedback",
+      description:
+        "Enable users to submit new ideas and issues by implementing the POST /api/feedback route handler. Validate incoming payload fields, create a new document in the database with initial zero votes, and respond with the created record.",
+      goal: "Validate request body, create a new feedback item in MongoDB, and return it with HTTP status 201.",
+      targetFiles: ["backend/src/routes/feedback.js", "backend/src/models/Feedback.js"],
+      evaluationCriteria: [
+        "POST /api/feedback responds with HTTP status 201 on valid submission",
+        "Response body contains the newly created feedback object with an _id",
+        "Newly created feedback initializes with votes: 0",
+        "Returns HTTP 400 Bad Request if title or description is missing",
+      ],
+    },
+    {
+      order: 3,
+      title: "Implement POST /api/feedback/:id/upvote",
+      description:
+        "Allow users to upvote feedback submissions by implementing the POST /api/feedback/:id/upvote route handler. Extract the item ID parameter, increment the vote counter by 1, persist the change, and return the updated document.",
+      goal: "Increment the vote tally of a target feedback document and return the updated record.",
+      targetFiles: ["backend/src/routes/feedback.js", "backend/src/models/Feedback.js"],
+      evaluationCriteria: [
+        "POST /api/feedback/:id/upvote responds with HTTP status 200",
+        "Increments the votes field of the target item by exactly 1",
+        "Returns the updated feedback object in the response",
+        "Responds with HTTP status 404 if the feedback :id does not exist",
+      ],
+    },
+  ],
+  files: [
+    {
+      path: "package.json",
+      content: `{
+  "name": "feedback-board",
+  "version": "1.0.0",
+  "description": "Full-Stack Feedback Board Project",
+  "main": "backend/src/server.js",
+  "scripts": {
+    "dev": "node backend/src/server.js",
+    "start": "node backend/src/server.js",
+    "test": "node backend/test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mongoose": "^8.3.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5"
+  }
+}
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "backend/package.json",
+      content: `{
+  "name": "feedback-board-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Community Feedback Board",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mongoose": "^8.3.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5"
+  }
+}
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "backend/.env.example",
+      content: `PORT=5000
+MONGODB_URI=mongodb://localhost:27017/feedback_board
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "backend/src/server.js",
+      content: `const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const dotenv = require('dotenv');
+const feedbackRoutes = require('./routes/feedback');
+
+dotenv.config({ path: path.join(__dirname, '../.env') });
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Enable CORS for client requests
+app.use(cors());
+
+// Parse JSON request bodies
+app.use(express.json());
+
+// Serve the pre-built, ready-to-use frontend
+const frontendPath = path.join(__dirname, '../../frontend');
+app.use(express.static(frontendPath));
+
+// Mount Feedback REST API routes
+app.use('/api/feedback', feedbackRoutes);
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    service: 'Feedback Board Backend API',
+    timestamp: new Date().toISOString(),
+    endpoints: [
+      'GET  /api/feedback',
+      'POST /api/feedback',
+      'POST /api/feedback/:id/upvote'
+    ]
+  });
+});
+
+// Fallback to frontend index.html for client-side routing
+app.get('*', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(\`🚀 Feedback Board Server running at http://localhost:\${PORT}\`);
+    console.log(\`📖 Live Preview available at http://localhost:\${PORT}\`);
+  });
+}
+
+module.exports = app;
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "backend/src/models/Feedback.js",
+      content: `const mongoose = require('mongoose');
+
+const feedbackSchema = new mongoose.Schema({
+  title: {
+    type: String,
+    required: [true, 'Title is required'],
+    trim: true,
+  },
+  description: {
+    type: String,
+    required: [true, 'Description is required'],
+    trim: true,
+  },
+  category: {
+    type: String,
+    enum: ['feature', 'bug', 'improvement', 'general'],
+    default: 'general',
+  },
+  votes: {
+    type: Number,
+    default: 0,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Resilient WebContainer & in-memory store adapter:
+// Allows standard Mongoose queries (find, create, findById, findByIdAndUpdate)
+// to work seamlessly with or without an active standalone MongoDB daemon.
+let inMemoryStore = [
+  {
+    _id: 'fb-001',
+    title: 'Add Dark Mode Theme Support',
+    description: 'Provide an eye-friendly dark color scheme for late-night sessions.',
+    category: 'feature',
+    votes: 14,
+    createdAt: new Date(Date.now() - 3600000 * 24),
+  },
+  {
+    _id: 'fb-002',
+    title: 'Export Feedback to CSV/Excel',
+    description: 'Allow administrators and users to download all feedback items as spreadsheet files.',
+    category: 'improvement',
+    votes: 9,
+    createdAt: new Date(Date.now() - 3600000 * 12),
+  },
+  {
+    _id: 'fb-003',
+    title: 'Fix Mobile Sidebar Overlay Bug',
+    description: 'On smaller mobile screens, the navigation overlay occasionally blocks the submit button.',
+    category: 'bug',
+    votes: 4,
+    createdAt: new Date(Date.now() - 3600000 * 4),
+  },
+];
+
+let RealModel;
+try {
+  RealModel = mongoose.model('Feedback', feedbackSchema);
+} catch (e) {
+  RealModel = mongoose.models.Feedback;
+}
+
+// Model wrapper providing standard Mongoose methods with resilient fallback
+const Feedback = {
+  schema: feedbackSchema,
+
+  async find(query = {}) {
+    // If connected to real MongoDB, delegate to Mongoose
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+      return RealModel.find(query);
+    }
+    // In-memory clone with chainable query helper (e.g. .sort())
+    let results = inMemoryStore.map((item) => ({ ...item }));
+    const chain = {
+      sort(sortOptions = {}) {
+        if (sortOptions.votes === -1) {
+          results.sort((a, b) => b.votes - a.votes);
+        } else if (sortOptions.votes === 1) {
+          results.sort((a, b) => a.votes - b.votes);
+        } else if (sortOptions.createdAt === -1) {
+          results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        }
+        return Promise.resolve(results);
+      },
+      then(resolve, reject) {
+        return Promise.resolve(results).then(resolve, reject);
+      },
+      catch(reject) {
+        return Promise.resolve(results).catch(reject);
+      }
+    };
+    return chain;
+  },
+
+  async findById(id) {
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+      return RealModel.findById(id);
+    }
+    const item = inMemoryStore.find((it) => it._id === String(id));
+    if (!item) return null;
+    return {
+      ...item,
+      async save() {
+        const idx = inMemoryStore.findIndex((it) => it._id === String(id));
+        if (idx !== -1) inMemoryStore[idx] = { ...this };
+        return this;
+      }
+    };
+  },
+
+  async create(data) {
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+      return RealModel.create(data);
+    }
+    if (!data.title || !data.description) {
+      throw new Error('Title and description are required fields.');
+    }
+    const newDoc = {
+      _id: 'fb-' + Math.random().toString(36).substring(2, 9),
+      title: data.title.trim(),
+      description: data.description.trim(),
+      category: data.category || 'general',
+      votes: typeof data.votes === 'number' ? data.votes : 0,
+      createdAt: new Date(),
+    };
+    inMemoryStore.push(newDoc);
+    return { ...newDoc };
+  },
+
+  async findByIdAndUpdate(id, update, options = {}) {
+    if (mongoose.connection && mongoose.connection.readyState === 1) {
+      return RealModel.findByIdAndUpdate(id, update, options);
+    }
+    const idx = inMemoryStore.findIndex((it) => it._id === String(id));
+    if (idx === -1) return null;
+
+    if (update.$inc && typeof update.$inc.votes === 'number') {
+      inMemoryStore[idx].votes += update.$inc.votes;
+    } else if (typeof update.votes === 'number') {
+      inMemoryStore[idx].votes = update.votes;
+    }
+    return { ...inMemoryStore[idx] };
+  },
+
+  _resetStore() {
+    inMemoryStore = [
+      {
+        _id: 'fb-001',
+        title: 'Add Dark Mode Theme Support',
+        description: 'Provide an eye-friendly dark color scheme for late-night sessions.',
+        category: 'feature',
+        votes: 14,
+        createdAt: new Date(Date.now() - 3600000 * 24),
+      },
+      {
+        _id: 'fb-002',
+        title: 'Export Feedback to CSV/Excel',
+        description: 'Allow administrators and users to download all feedback items as spreadsheet files.',
+        category: 'improvement',
+        votes: 9,
+        createdAt: new Date(Date.now() - 3600000 * 12),
+      },
+      {
+        _id: 'fb-003',
+        title: 'Fix Mobile Sidebar Overlay Bug',
+        description: 'On smaller mobile screens, the navigation overlay occasionally blocks the submit button.',
+        category: 'bug',
+        votes: 4,
+        createdAt: new Date(Date.now() - 3600000 * 4),
+      },
+    ];
+  }
+};
+
+module.exports = Feedback;
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "backend/src/routes/feedback.js",
+      content: `const express = require('express');
+const router = express.Router();
+const Feedback = require('../models/Feedback');
+
+/**
+ * GET /api/feedback
+ * Task 1: Retrieve all feedback items
+ *
+ * Expected behavior:
+ * - Query the database for all feedback entries.
+ * - Sort the items so the highest votes or newest entries appear first.
+ * - Respond with HTTP status 200 and a JSON array of feedback objects.
+ */
+router.get('/', async (req, res) => {
+  try {
+    // TODO: Task 1 - Retrieve all feedback documents from the database.
+    // Query the database, sort the items, and return the array with HTTP 200.
+
+    res.status(501).json({
+      error: 'Not Implemented',
+      message: 'TODO: Implement GET /api/feedback in backend/src/routes/feedback.js'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/feedback
+ * Task 2: Create a new feedback item
+ *
+ * Expected behavior:
+ * - Extract title, description, and optional category from req.body.
+ * - Validate that title and description are present and not empty.
+ * - If validation fails, respond with HTTP status 400 Bad Request.
+ * - Create a new feedback document in the database with votes initialized to 0.
+ * - Respond with HTTP status 201 Created and the newly created feedback object.
+ */
+router.post('/', async (req, res) => {
+  try {
+    const { title, description, category } = req.body;
+
+    // TODO: Task 2 - Validate required fields (title, description).
+    // If validation fails, return HTTP 400 Bad Request.
+    // Otherwise, create and save the new feedback item, and respond with HTTP 201 Created.
+
+    res.status(501).json({
+      error: 'Not Implemented',
+      message: 'TODO: Implement POST /api/feedback in backend/src/routes/feedback.js'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/feedback/:id/upvote
+ * Task 3: Upvote an existing feedback item
+ *
+ * Expected behavior:
+ * - Extract the feedback ID from req.params.id.
+ * - Find the feedback document in the database.
+ * - If no document is found with that ID, respond with HTTP status 404 Not Found.
+ * - If found, increment its votes count by 1 and save the update.
+ * - Respond with HTTP status 200 OK and the updated feedback document.
+ */
+router.post('/:id/upvote', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // TODO: Task 3 - Find feedback by ID, increment votes by 1, and persist changes.
+    // If not found, return HTTP 404. Otherwise, return HTTP 200 with updated document.
+
+    res.status(501).json({
+      error: 'Not Implemented',
+      message: 'TODO: Implement POST /api/feedback/:id/upvote in backend/src/routes/feedback.js'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router;
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "frontend/index.html",
+      content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Community Feedback Board</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07090e;
+      --card-bg: #0e1320;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-feature: #38bdf8;
+      --accent-bug: #f43f5e;
+      --accent-improvement: #10b981;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px 16px 48px;
+    }
+
+    .container {
+      max-width: 1040px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 28px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #6366f1, #06b6d4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+    }
+
+    /* Notice Banner */
+    .notice-card {
+      background: #0f1526;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 14px;
+      padding: 14px 18px;
+      margin-bottom: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      font-size: 13px;
+    }
+    .notice-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #c7d2fe;
+    }
+    .notice-badge {
+      background: rgba(99, 102, 241, 0.2);
+      color: #a5b4fc;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Layout Grid */
+    .grid-layout {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+    @media (max-width: 860px) {
+      .grid-layout { grid-template-columns: 1fr; }
+    }
+
+    /* Sidebar: Form */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px;
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .card-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+      line-height: 1.4;
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+    }
+    input, select, textarea {
+      width: 100%;
+      background: #080c14;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+    }
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      border: none;
+      color: white;
+      font-weight: 700;
+      font-size: 13px;
+      padding: 11px;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+      transition: all 0.2s;
+    }
+    .btn-submit:hover {
+      background: linear-gradient(135deg, #4f46e5, #4338ca);
+      transform: translateY(-1px);
+    }
+    .btn-submit:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* Right column: Filter & List */
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+    .filter-tabs {
+      display: flex;
+      align-items: center;
+      background: #080c14;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 3px;
+      gap: 4px;
+    }
+    .filter-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .filter-btn.active {
+      background: rgba(99, 102, 241, 0.2);
+      color: #a5b4fc;
+    }
+
+    .feedback-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .feedback-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px 18px;
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      transition: all 0.2s;
+    }
+    .feedback-card:hover {
+      border-color: rgba(99, 102, 241, 0.35);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    }
+
+    /* Upvote button */
+    .upvote-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #080c14;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      min-width: 48px;
+      height: 52px;
+      padding: 4px 8px;
+      cursor: pointer;
+      color: #cbd5e1;
+      font-family: inherit;
+      font-weight: 700;
+      font-size: 12px;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    .upvote-btn:hover {
+      background: rgba(99, 102, 241, 0.15);
+      border-color: rgba(99, 102, 241, 0.5);
+      color: #818cf8;
+      transform: scale(1.05);
+    }
+    .upvote-icon {
+      font-size: 14px;
+      line-height: 1;
+      margin-bottom: 2px;
+    }
+
+    .feedback-body {
+      flex: 1;
+      min-width: 0;
+    }
+    .feedback-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+    .feedback-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .category-pill {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      letter-spacing: 0.04em;
+    }
+    .category-feature { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .category-bug { background: rgba(244, 63, 94, 0.15); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.3); }
+    .category-improvement { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .category-general { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+
+    .feedback-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #1e1b4b;
+      border: 1px solid #4f46e5;
+      color: #e0e7ff;
+      padding: 12px 18px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      display: none;
+      align-items: center;
+      gap: 10px;
+      z-index: 1000;
+      animation: slideIn 0.3s ease;
+    }
+    @keyframes slideIn {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      background: var(--card-bg);
+      border: 1px dashed var(--card-border);
+      border-radius: 16px;
+      color: var(--text-muted);
+    }
+    .empty-state h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+    .empty-state p {
+      font-size: 13px;
+      max-width: 420px;
+      margin: 0 auto;
+      line-height: 1.5;
+    }
+    .code-pill {
+      font-family: 'JetBrains Mono', monospace;
+      background: #080c14;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #a5b4fc;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Top Header -->
+    <header>
+      <div class="brand">
+        <div class="brand-icon">💡</div>
+        <div>
+          <h1>Community Feedback Board</h1>
+          <div class="subtitle">Pre-built interactive frontend connected to your Node/Express backend</div>
+        </div>
+      </div>
+      <div class="status-badge">
+        <div class="status-dot"></div>
+        <span id="backend-status">Checking API Status...</span>
+      </div>
+    </header>
+
+    <!-- Notice Card -->
+    <div class="notice-card">
+      <div class="notice-left">
+        <span class="notice-badge">Workspace Info</span>
+        <span>This frontend is ready. Implement the backend route handlers in <span class="code-pill">backend/src/routes/feedback.js</span> to power it!</span>
+      </div>
+      <button class="filter-btn" onclick="fetchFeedback()" style="background: rgba(255,255,255,0.06); color: #fff;">↻ Refresh API</button>
+    </div>
+
+    <!-- Main Content Grid -->
+    <div class="grid-layout">
+      <!-- Left: Create Form -->
+      <aside class="card">
+        <h2 class="card-title">Submit Feedback</h2>
+        <p class="card-desc">Users submit issues and feature requests through this form (<span class="code-pill">POST /api/feedback</span>).</p>
+
+        <form id="feedback-form" onsubmit="handleCreateFeedback(event)">
+          <div class="form-group">
+            <label for="fb-title">Title</label>
+            <input type="text" id="fb-title" placeholder="e.g. Export data to CSV" required>
+          </div>
+
+          <div class="form-group">
+            <label for="fb-category">Category</label>
+            <select id="fb-category">
+              <option value="feature">Feature Request</option>
+              <option value="improvement">Improvement</option>
+              <option value="bug">Bug Report</option>
+              <option value="general">General</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="fb-desc">Description</label>
+            <textarea id="fb-desc" placeholder="Describe the feature or problem in detail..." required></textarea>
+          </div>
+
+          <button type="submit" id="btn-submit" class="btn-submit">
+            <span>Submit Feedback</span>
+            <span>&rarr;</span>
+          </button>
+        </form>
+      </aside>
+
+      <!-- Right: List & Filters -->
+      <main>
+        <div class="filter-bar">
+          <div class="filter-tabs">
+            <button class="filter-btn active" onclick="setCategoryFilter('all', this)">All</button>
+            <button class="filter-btn" onclick="setCategoryFilter('feature', this)">Features</button>
+            <button class="filter-btn" onclick="setCategoryFilter('improvement', this)">Improvements</button>
+            <button class="filter-btn" onclick="setCategoryFilter('bug', this)">Bugs</button>
+          </div>
+          <span id="items-count" style="font-size: 12px; color: var(--text-muted); font-weight: 600;">0 items</span>
+        </div>
+
+        <div id="feedback-container" class="feedback-list">
+          <div class="empty-state">
+            <h3>Loading Feedback...</h3>
+            <p>Calling <span class="code-pill">GET /api/feedback</span> from your backend.</p>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Floating Toast -->
+  <div id="toast" class="toast">
+    <span id="toast-message">Message</span>
+  </div>
+
+  <script>
+    let feedbackItems = [];
+    let activeFilter = 'all';
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toast-message');
+      toastMsg.innerText = msg;
+      toast.style.display = 'flex';
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 3500);
+    }
+
+    async function checkHealth() {
+      const statusEl = document.getElementById('backend-status');
+      try {
+        const res = await fetch('/api/health');
+        if (res.ok) {
+          statusEl.innerText = 'API Online (Port 5000)';
+          statusEl.parentElement.style.background = 'rgba(16, 185, 129, 0.12)';
+          statusEl.parentElement.style.color = '#34d399';
+        } else {
+          statusEl.innerText = 'API Responding (HTTP ' + res.status + ')';
+        }
+      } catch (err) {
+        statusEl.innerText = 'API Disconnected';
+        statusEl.parentElement.style.background = 'rgba(244, 63, 94, 0.12)';
+        statusEl.parentElement.style.color = '#fb7185';
+      }
+    }
+
+    async function fetchFeedback() {
+      const container = document.getElementById('feedback-container');
+      try {
+        const res = await fetch('/api/feedback');
+        if (res.status === 501) {
+          const data = await res.json();
+          container.innerHTML = \`
+            <div class="empty-state">
+              <div style="font-size: 32px; margin-bottom: 8px;">⏳</div>
+              <h3>GET /api/feedback Not Implemented</h3>
+              <p style="margin-bottom: 12px;">\${data.message || 'Complete Task 1 in backend/src/routes/feedback.js'}</p>
+              <span class="code-pill">router.get('/', async (req, res) => { ... })</span>
+            </div>
+          \`;
+          document.getElementById('items-count').innerText = '0 items';
+          return;
+        }
+
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+
+        const data = await res.json();
+        feedbackItems = Array.isArray(data) ? data : [];
+        renderList();
+      } catch (err) {
+        container.innerHTML = \`
+          <div class="empty-state">
+            <div style="font-size: 32px; margin-bottom: 8px;">🔌</div>
+            <h3>Could Not Connect to Backend</h3>
+            <p>Ensure your dev server is running on port 5000 (<span class="code-pill">npm run dev</span>).</p>
+          </div>
+        \`;
+      }
+    }
+
+    function setCategoryFilter(cat, btn) {
+      activeFilter = cat;
+      document.querySelectorAll('.filter-tabs .filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderList();
+    }
+
+    function renderList() {
+      const container = document.getElementById('feedback-container');
+      const filtered = activeFilter === 'all'
+        ? feedbackItems
+        : feedbackItems.filter(item => (item.category || '').toLowerCase() === activeFilter);
+
+      document.getElementById('items-count').innerText = filtered.length + ' item' + (filtered.length === 1 ? '' : 's');
+
+      if (filtered.length === 0) {
+        container.innerHTML = \`
+          <div class="empty-state">
+            <h3>No feedback entries found</h3>
+            <p>Be the first to submit an idea using the form on the left!</p>
+          </div>
+        \`;
+        return;
+      }
+
+      container.innerHTML = filtered.map(item => {
+        const cat = (item.category || 'general').toLowerCase();
+        const catClass = 'category-' + cat;
+        return \`
+          <div class="feedback-card" id="card-\${item._id}">
+            <button class="upvote-btn" onclick="handleUpvote('\${item._id}')" title="Upvote this idea">
+              <span class="upvote-icon">▲</span>
+              <span id="votes-\${item._id}">\${item.votes || 0}</span>
+            </button>
+            <div class="feedback-body">
+              <div class="feedback-header">
+                <span class="feedback-title">\${escapeHtml(item.title)}</span>
+                <span class="category-pill \${catClass}">\${cat}</span>
+              </div>
+              <p class="feedback-desc">\${escapeHtml(item.description)}</p>
+            </div>
+          </div>
+        \`;
+      }).join('');
+    }
+
+    async function handleCreateFeedback(e) {
+      e.preventDefault();
+      const titleInput = document.getElementById('fb-title');
+      const descInput = document.getElementById('fb-desc');
+      const categoryInput = document.getElementById('fb-category');
+      const submitBtn = document.getElementById('btn-submit');
+
+      const payload = {
+        title: titleInput.value.trim(),
+        description: descInput.value.trim(),
+        category: categoryInput.value,
+      };
+
+      submitBtn.disabled = true;
+      try {
+        const res = await fetch('/api/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (res.status === 501) {
+          const errData = await res.json();
+          showToast('⚠️ Task 2: ' + (errData.message || 'POST /api/feedback not implemented yet.'));
+          return;
+        }
+
+        if (!res.ok) {
+          const errData = await res.json();
+          showToast('❌ Error: ' + (errData.error || 'Failed to create feedback'));
+          return;
+        }
+
+        const created = await res.json();
+        showToast('✔ Feedback submitted successfully!');
+        titleInput.value = '';
+        descInput.value = '';
+        await fetchFeedback();
+      } catch (err) {
+        showToast('❌ Network error submitting feedback.');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    async function handleUpvote(id) {
+      try {
+        const res = await fetch('/api/feedback/' + id + '/upvote', {
+          method: 'POST'
+        });
+
+        if (res.status === 501) {
+          const errData = await res.json();
+          showToast('⚠️ Task 3: ' + (errData.message || 'POST /api/feedback/:id/upvote not implemented yet.'));
+          return;
+        }
+
+        if (!res.ok) {
+          const errData = await res.json();
+          showToast('❌ Upvote failed: ' + (errData.error || errData.message || 'Error'));
+          return;
+        }
+
+        const updated = await res.json();
+        const voteSpan = document.getElementById('votes-' + id);
+        if (voteSpan && typeof updated.votes === 'number') {
+          voteSpan.innerText = updated.votes;
+        }
+        showToast('▲ Vote recorded! Total: ' + (updated.votes || 0));
+      } catch (err) {
+        showToast('❌ Network error upvoting item.');
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // Initial load
+    checkHealth();
+    fetchFeedback();
+  </script>
+</body>
+</html>
+`,
+      visible: true,
+      editable: false,
+    },
+    {
+      path: "backend/test.js",
+      content: `/**
+ * Automated Test Suite for Feedback Board Backend
+ * Run with: node backend/test.js
+ */
+
+const feedbackRoutes = require('./src/routes/feedback');
+const Feedback = require('./src/models/Feedback');
+
+// Minimal in-memory HTTP harness for testing Express route handlers
+function createMockRes() {
+  const res = {
+    statusCode: 200,
+    headers: {},
+    body: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(data) {
+      this.body = data;
+      return this;
+    },
+    send(data) {
+      this.body = data;
+      return this;
+    },
+  };
+  return res;
+}
+
+async function dispatchRoute(router, method, url, body = {}, params = {}) {
+  const req = {
+    method,
+    url,
+    body,
+    params,
+    headers: { 'content-type': 'application/json' },
+  };
+  const res = createMockRes();
+
+  return new Promise((resolve) => {
+    // Find matching route handler in Express router stack
+    let matched = false;
+    for (const layer of router.stack) {
+      if (layer.route) {
+        const routeMethod = Object.keys(layer.route.methods)[0]?.toUpperCase();
+        if (routeMethod === method) {
+          // Check route path matching
+          const routePath = layer.route.path;
+          let isMatch = false;
+
+          if (routePath === '/' && url === '/') {
+            isMatch = true;
+          } else if (routePath === '/:id/upvote' && url.includes('/upvote')) {
+            isMatch = true;
+            const parts = url.split('/');
+            req.params = { id: parts[1] };
+          }
+
+          if (isMatch) {
+            matched = true;
+            const handler = layer.route.stack[0].handle;
+            handler(req, res, () => {}).then(() => resolve(res)).catch(() => resolve(res));
+            break;
+          }
+        }
+      }
+    }
+    if (!matched) {
+      res.statusCode = 404;
+      res.body = { error: 'Route not found in test harness' };
+      resolve(res);
+    }
+  });
+}
+
+async function runFeedbackTestSuite() {
+  console.log('======================================================');
+  console.log('🧪 Starting Feedback Board Test Suite (Node.js)');
+  console.log('======================================================');
+
+  let passed = 0;
+  let total = 0;
+
+  function assert(condition, message) {
+    total++;
+    if (condition) {
+      console.log(\`  ✔ [PASS] \${message}\`);
+      passed++;
+    } else {
+      console.log(\`  ❌ [FAIL] \${message}\`);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  console.log('\\n📌 Task 1 Tests: GET /api/feedback');
+  console.log('-----------------------------------------------------');
+  const getRes = await dispatchRoute(feedbackRoutes, 'GET', '/');
+  assert(getRes.statusCode === 200, 'GET /api/feedback responds with status 200');
+  assert(Array.isArray(getRes.body), 'Response body is an array of feedback items');
+  if (Array.isArray(getRes.body) && getRes.body.length > 0) {
+    const first = getRes.body[0];
+    assert(first.title && first.description, 'Feedback objects contain title and description');
+    assert(typeof first.votes === 'number', 'Feedback objects contain numerical votes');
+  } else {
+    assert(false, 'Feedback array should contain items (implement GET in routes/feedback.js)');
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  console.log('\\n📌 Task 2 Tests: POST /api/feedback');
+  console.log('-----------------------------------------------------');
+  // Validation rejection test
+  const invalidPost = await dispatchRoute(feedbackRoutes, 'POST', '/', {});
+  assert(invalidPost.statusCode === 400, 'Rejects empty payload with 400 Bad Request');
+
+  // Valid creation test
+  const validPost = await dispatchRoute(feedbackRoutes, 'POST', '/', {
+    title: 'Automated Test Idea',
+    description: 'Verifying feedback creation pipeline',
+    category: 'feature'
+  });
+  assert(validPost.statusCode === 201, 'POST /api/feedback responds with 201 Created');
+  assert(validPost.body && validPost.body._id, 'Created feedback document returns generated _id');
+  assert(validPost.body && validPost.body.votes === 0, 'Newly created feedback document has 0 initial votes');
+
+  // ─────────────────────────────────────────────────────────────
+  console.log('\\n📌 Task 3 Tests: POST /api/feedback/:id/upvote');
+  console.log('-----------------------------------------------------');
+  // Invalid ID test
+  const invalidUpvote = await dispatchRoute(feedbackRoutes, 'POST', '/non-existent-id/upvote');
+  assert(invalidUpvote.statusCode === 404, 'Returns 404 Not Found for non-existent feedback ID');
+
+  // Valid upvote test
+  const testId = (validPost.body && validPost.body._id) ? validPost.body._id : 'fb-001';
+  const initialVotes = (validPost.body && typeof validPost.body.votes === 'number') ? validPost.body.votes : 14;
+  const upvoteRes = await dispatchRoute(feedbackRoutes, 'POST', \`/\${testId}/upvote\`);
+  assert(upvoteRes.statusCode === 200, 'POST /api/feedback/:id/upvote responds with status 200');
+  assert(
+    upvoteRes.body && upvoteRes.body.votes === initialVotes + 1,
+    'Vote count incremented by exactly 1'
+  );
+
+  console.log('======================================================');
+  console.log(\`Test Results: \${passed} of \${total} tests passed.\`);
+  console.log('======================================================');
+
+  process.exit(passed === total ? 0 : 1);
+}
+
+runFeedbackTestSuite().catch((err) => {
+  console.error('Test suite execution error:', err);
+  process.exit(1);
+});
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "README.md",
+      content: `# Full-Stack Feedback Board Project
+
+A product feedback board built with a pre-built frontend and an Express + Node.js + Mongoose backend.
+
+## Project Structure
+
+\`\`\`
+feedback-board/
+├── frontend/
+│   └── index.html             # Pre-built interactive client (Do not edit)
+├── backend/
+│   ├── src/
+│   │   ├── models/
+│   │   │   └── Feedback.js   # Mongoose model for feedback items
+│   │   ├── routes/
+│   │   │   └── feedback.js   # API route handlers (Learner Tasks 1, 2, and 3)
+│   │   └── server.js         # Express server & static asset mount
+│   ├── test.js               # Automated test runner
+│   ├── .env.example
+│   └── package.json
+└── package.json
+\`\`\`
+
+## Running the Application
+
+### 1. Start Development Server:
+\`\`\`bash
+npm run dev
+\`\`\`
+Access the Live Preview on port 5000 to interact with the frontend board.
+
+### 2. Run the Test Suite:
+\`\`\`bash
+npm test
+# or
+node backend/test.js
+\`\`\`
+
+## Sequential Tasks:
+
+1. **Task 1: Implement GET /api/feedback**
+   - Query all feedback documents from the database and return as JSON.
+2. **Task 2: Implement POST /api/feedback**
+   - Validate incoming title and description, create a document with 0 initial votes, and return HTTP 201.
+3. **Task 3: Implement POST /api/feedback/:id/upvote**
+   - Locate the target feedback by ID and increment its vote count by 1.
+`,
+      visible: true,
+      editable: true,
+    }
+  ],
+};
+
+export const allSeedProjects: SeedProject[] = [
+  authSeedProject,
+  feedbackBoardSeedProject,
+];
+

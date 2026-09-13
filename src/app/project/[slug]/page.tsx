@@ -3,7 +3,7 @@
 import React, { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import CodingEnvironment from "@/components/CodingEnvironment";
-import { authSeedProject } from "@/lib/seedProject";
+import { authSeedProject, feedbackBoardSeedProject } from "@/lib/seedProject";
 import { RefreshCw, Lock } from "lucide-react";
 
 export default function ProjectWorkspaceSlugPage({
@@ -75,18 +75,28 @@ export default function ProjectWorkspaceSlugPage({
     );
   }
 
-  // Pass seed project directly for the "build-auth" slug to avoid API round-trips
-  // and ensure the workspace loads instantly even when MongoDB is offline.
+  const isFeedbackSlug =
+    slug === "feedback-board" ||
+    slug === "feedback_board" ||
+    slug === "build-feedback-board";
+
   const isAuthSlug =
     slug === "build-auth" ||
     slug === "build_auth" ||
     slug === "build-express-mongodb-auth" ||
     slug === "default";
 
+  let initialProject = undefined;
+  if (isFeedbackSlug) {
+    initialProject = feedbackBoardSeedProject as any;
+  } else if (isAuthSlug) {
+    initialProject = authSeedProject as any;
+  }
+
   return (
     <CodingEnvironment
       projectIdOrSlug={slug}
-      initialProject={isAuthSlug ? (authSeedProject as any) : undefined}
+      initialProject={initialProject}
       user={user}
     />
   );

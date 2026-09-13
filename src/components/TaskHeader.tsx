@@ -43,6 +43,8 @@ interface TaskHeaderProps {
   taskCompleted: boolean;
   onRunCode?: () => void;
   runningCode?: boolean;
+  runButtonLabel?: string;
+  runButtonType?: "html" | "node" | "test" | "general";
   onStartServer?: () => void;
   isServerRunning?: boolean;
   startingServer?: boolean;
@@ -69,6 +71,8 @@ export default function TaskHeader({
   taskCompleted,
   onRunCode,
   runningCode = false,
+  runButtonLabel,
+  runButtonType = "general",
   onStartServer,
   isServerRunning = false,
   startingServer = false,
@@ -199,18 +203,31 @@ export default function TaskHeader({
             <button
               onClick={onRunCode}
               disabled={runningCode}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50"
-              title="Run code with Node.js in WebContainer (node test.js)"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-white text-xs font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50 ${
+                runButtonType === "html"
+                  ? "bg-cyan-600 hover:bg-cyan-500 shadow-cyan-600/25"
+                  : "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/25"
+              }`}
+              title={
+                runButtonType === "html"
+                  ? "Preview HTML in live browser canvas"
+                  : `Run ${runButtonLabel || "code"} in WebContainer`
+              }
             >
               {runningCode ? (
                 <>
                   <RefreshCw className="h-3 w-3 animate-spin" />
                   <span className="hidden sm:inline">Running...</span>
                 </>
+              ) : runButtonType === "html" ? (
+                <>
+                  <Globe className="h-3 w-3" />
+                  <span>{runButtonLabel || "Preview HTML"}</span>
+                </>
               ) : (
                 <>
                   <Play className="h-3 w-3 fill-white" />
-                  <span>Run</span>
+                  <span>{runButtonLabel || "Run"}</span>
                 </>
               )}
             </button>

@@ -40,6 +40,7 @@ import {
   writeProjectFile,
   onServerReady,
   getWebContainer,
+  detectServerCommand,
 } from "@/lib/webcontainer";
 
 export interface ProjectFile {
@@ -162,6 +163,8 @@ export default function CodingEnvironment({
       if (files.length > 0) {
         // Immediately set preferred file and initial tabs so editor isn't blank
         const preferredFile =
+          files.find((f) => f.path.includes("routes/feedback.js")) ||
+          files.find((f) => f.path.includes("models/Feedback.js")) ||
           files.find((f) => f.path.includes("User.js")) ||
           files.find((f) => f.path.includes("server.js")) ||
           files.find((f) => f.visible !== false && f.editable !== false) ||
@@ -174,7 +177,10 @@ export default function CodingEnvironment({
           const initialTabsList: OpenTab[] = [];
           files.forEach((f) => {
             if (
+              f.path.includes("routes/feedback.js") ||
+              f.path.includes("models/Feedback.js") ||
               f.path.includes("public/index.html") ||
+              f.path.includes("frontend/index.html") ||
               f.path.includes("server.js") ||
               f.path.includes("User.js") ||
               f.path.includes("routes/auth.js") ||
@@ -314,6 +320,34 @@ export default function CodingEnvironment({
       ],
     };
 
+  // Active file type detection for dynamic Run button
+  const activeFileExt = activeFilePath ? activeFilePath.split(".").pop()?.toLowerCase() || "" : "";
+  const isHtmlActive = activeFileExt === "html" || activeFileExt === "htm";
+  const isJsActive = activeFileExt === "js" || activeFileExt === "mjs" || activeFileExt === "cjs";
+  const isTsActive = activeFileExt === "ts" || activeFileExt === "tsx";
+
+  let runButtonLabel = "Run Code";
+  let runButtonType: "html" | "node" | "test" | "general" = "general";
+
+  if (isHtmlActive) {
+    const fileName = activeFilePath.includes("/") ? activeFilePath.split("/").pop()! : activeFilePath;
+    runButtonLabel = `Preview ${fileName}`;
+    runButtonType = "html";
+  } else if (isJsActive || isTsActive) {
+    const fileName = activeFilePath.includes("/") ? activeFilePath.split("/").pop()! : activeFilePath;
+    if (fileName.includes("test") || fileName.includes("spec")) {
+      runButtonLabel = `node ${fileName}`;
+      runButtonType = "test";
+    } else {
+      runButtonLabel = `node ${fileName}`;
+      runButtonType = "node";
+    }
+  } else if (activeFilePath) {
+    const fileName = activeFilePath.includes("/") ? activeFilePath.split("/").pop()! : activeFilePath;
+    runButtonLabel = `Run ${fileName}`;
+    runButtonType = "general";
+  }
+
   const handleStartServer = useCallback(async () => {
     setActiveBottomTab("preview");
     if (isServerRunning && previewUrl) {
@@ -321,12 +355,6 @@ export default function CodingEnvironment({
     }
 
     setStartingServer(true);
-    setTerminalLogs((prev) => [
-      ...prev,
-      "",
-      "➜ node server.js",
-      "⚡ [WebContainer] Starting Node.js HTTP Server on port 5000...",
-    ]);
 
     const appendLog = (lines: string | string[]) => {
       const arr = Array.isArray(lines) ? lines : lines.split("\n");
@@ -359,7 +387,35 @@ export default function CodingEnvironment({
         console.warn("onServerReady listener error:", srErr);
       }
 
-      const proc = await spawnProcess("node", ["server.js"], {
+      // Smart Dev Server: automatically inspects virtual filesystem
+      const detected = await detectServerCommand();
+      setTerminalLogs((prev) => [
+        ...prev,
+        "",
+        `➜ ${detected.description}`,
+        `⚡ [WebContainer] Starting ${detected.description} on port 5000...`,
+      ]);
+
+      // If npm install is needed for npm scripts or server.js
+      if (
+        detected.type === "npm-script" ||
+        (detected.type === "node-server" && detected.args[0]?.includes("server"))
+      ) {
+        try {
+          appendLog("📦 Checking dependencies (npm install)...");
+          const installProcess = await spawnProcess("npm", ["install"], {
+            output: (chunk) => appendLog(chunk),
+          });
+          const installCode = await installProcess.exit;
+          if (installCode === 0) {
+            appendLog("✔ Dependencies ready.");
+          }
+        } catch {
+          // Continue if skipped
+        }
+      }
+
+      const proc = await spawnProcess(detected.command, detected.args, {
         output: (chunk) => appendLog(chunk),
       });
 
@@ -391,11 +447,13 @@ export default function CodingEnvironment({
       serverProcessRef.current = null;
     }
     setIsServerRunning(false);
-    setTerminalLogs((prev) => [...prev, "🛑 Node.js server stopped."]);
+    setTerminalLogs((prev) => [...prev, "🛑 Dev server stopped."]);
   }, []);
 
   const handleRunCode = async (cmd = "node", args = ["test.js"]) => {
-    const isServerRun = cmd === "node" && args.includes("server.js");
+    const isServerRun =
+      (cmd === "node" && args.includes("server.js")) ||
+      (cmd === "npm" && (args.includes("start") || args.includes("dev")));
     if (isServerRun) {
       return handleStartServer();
     }
@@ -427,24 +485,6 @@ export default function CodingEnvironment({
     };
 
     try {
-      // If running server.js, we need npm install first (requires express etc.)
-      if (isServerRun) {
-        try {
-          appendLog("📦 Installing dependencies (npm install)...");
-          const installProcess = await spawnProcess("npm", ["install"], {
-            output: (chunk) => appendLog(chunk),
-          });
-          const installCode = await installProcess.exit;
-          if (installCode !== 0) {
-            appendLog(`⚠ npm install exited with code ${installCode}, continuing...`);
-          } else {
-            appendLog("✔ Dependencies installed.");
-          }
-        } catch {
-          appendLog("⚠ npm install skipped (packages may already be available).");
-        }
-      }
-
       const process = await spawnProcess(cmd, args, {
         output: (chunk) => appendLog(chunk),
       });
@@ -458,7 +498,7 @@ export default function CodingEnvironment({
       ]);
     } catch (execErr: any) {
       console.warn("Direct spawn error, activating local Node runner:", execErr?.message);
-      // Guaranteed fallback runner for environments where WebContainer cannot spawn
+      // Fallback runner for environments where WebContainer cannot spawn
       if (isTestRun) {
         setTerminalLogs((prev) => [
           ...prev,
@@ -500,21 +540,68 @@ export default function CodingEnvironment({
           ...prev,
           "📦 Installing dependencies...",
           "✔ Dependencies installed.",
-          "🚀 Auth Server running at http://localhost:5000",
-          "📖 Health check: GET http://localhost:5000/api/health",
-          "⚡ Endpoints:",
-          "   POST /api/auth/register  — Register a new user",
-          "   POST /api/auth/login     — Login & receive JWT token",
-          "   GET  /api/auth/me        — Get profile (requires Bearer token)",
+          "🚀 Server running at http://localhost:5000",
           "✔ Server active and listening on port 5000.",
         ]);
       } else {
-        appendLog(`Command completed: ${fullCmd}`);
+        appendLog([
+          `❌ Command failed: ${fullCmd}`,
+          `Error: ${execErr?.message || execErr}`,
+        ]);
       }
     } finally {
       setRunningCode(false);
     }
   };
+
+  const handleRunActiveFile = useCallback(async () => {
+    // 1. Auto-save current file content to WebContainer
+    if (activeFilePath && activeFileContent) {
+      try {
+        await writeProjectFile(activeFilePath, activeFileContent);
+      } catch (saveErr) {
+        console.warn("Auto-save error before running:", saveErr);
+      }
+    }
+
+    // 2. If active file is HTML (e.g. index.html or any custom HTML file)
+    if (isHtmlActive) {
+      setActiveBottomTab("preview");
+      const targetPath = activeFilePath === "index.html" ? "/" : `/${activeFilePath}`;
+      setPreviewPath(targetPath);
+
+      if (isServerRunning && previewUrl) {
+        setIframeReloadKey((k) => k + 1);
+        setTerminalLogs((prev) => [
+          ...prev,
+          "",
+          `➜ Previewing: ${activeFilePath}`,
+          `✔ Live Preview refreshed for ${activeFilePath}`,
+        ]);
+      } else {
+        await handleStartServer();
+      }
+      return;
+    }
+
+    // 3. If active file is JS / TS
+    if (isJsActive || isTsActive) {
+      await handleRunCode("node", [activeFilePath]);
+      return;
+    }
+
+    // 4. Default fallback: run test.js if no active script
+    await handleRunCode("node", ["test.js"]);
+  }, [
+    activeFilePath,
+    activeFileContent,
+    isHtmlActive,
+    isJsActive,
+    isTsActive,
+    isServerRunning,
+    previewUrl,
+    handleStartServer,
+  ]);
 
   const handleRunEvaluation = async () => {
     setEvaluating(true);
@@ -732,8 +819,10 @@ export default function CodingEnvironment({
                   onRunEvaluation={handleRunEvaluation}
                   evaluating={evaluating}
                   taskCompleted={taskCompleted}
-                  onRunCode={() => handleRunCode("node", ["test.js"])}
+                  onRunCode={handleRunActiveFile}
                   runningCode={runningCode}
+                  runButtonLabel={runButtonLabel}
+                  runButtonType={runButtonType}
                   onStartServer={handleStartServer}
                   isServerRunning={isServerRunning}
                   startingServer={startingServer}
@@ -952,12 +1041,34 @@ export default function CodingEnvironment({
                         ) : (
                           <>
                             <button
+                              onClick={handleRunActiveFile}
+                              disabled={runningCode}
+                              className={`flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-mono transition-colors disabled:opacity-50 ${
+                                isHtmlActive
+                                  ? "bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40"
+                                  : "bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30"
+                              }`}
+                              title={
+                                isHtmlActive
+                                  ? `Preview ${activeFilePath || "HTML"}`
+                                  : `Run ${activeFilePath || "active file"}`
+                              }
+                            >
+                              {isHtmlActive ? (
+                                <Globe className="h-2.5 w-2.5 text-cyan-300" />
+                              ) : (
+                                <Play className="h-2.5 w-2.5 fill-emerald-300" />
+                              )}
+                              <span>{runButtonLabel}</span>
+                            </button>
+
+                            <button
                               onClick={() => handleRunCode("node", ["test.js"])}
                               disabled={runningCode}
-                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
-                              title="Execute test suite (no npm install needed)"
+                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-mono transition-colors disabled:opacity-50"
+                              title="Execute test suite (node test.js)"
                             >
-                              <Play className="h-2.5 w-2.5 fill-emerald-300" />
+                              <Play className="h-2.5 w-2.5 fill-slate-300" />
                               <span>node test.js</span>
                             </button>
 
@@ -965,21 +1076,32 @@ export default function CodingEnvironment({
                               onClick={() => handleRunCode("npm", ["install"])}
                               disabled={runningCode}
                               className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
-                              title="Install npm dependencies (required before running server.js)"
+                              title="Install npm dependencies"
                             >
                               <Plus className="h-2.5 w-2.5" />
                               <span>npm install</span>
                             </button>
 
-                            <button
-                              onClick={handleStartServer}
-                              disabled={startingServer}
-                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
-                              title="Start Auth Server on port 5000 and view live preview"
-                            >
-                              <Play className="h-2.5 w-2.5 fill-indigo-300" />
-                              <span>node server.js</span>
-                            </button>
+                            {isServerRunning ? (
+                              <button
+                                onClick={handleStopServer}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 border border-rose-800/40 text-[11px] font-mono transition-colors cursor-pointer"
+                                title="Stop Dev Server"
+                              >
+                                <Square className="h-2.5 w-2.5 fill-rose-400 text-rose-400" />
+                                <span>Stop Server</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={handleStartServer}
+                                disabled={startingServer}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
+                                title="Start project dev server and connect live preview"
+                              >
+                                <Play className="h-2.5 w-2.5 fill-indigo-300" />
+                                <span>Dev Server</span>
+                              </button>
+                            )}
 
                             <button
                               onClick={() => setTerminalLogs([])}

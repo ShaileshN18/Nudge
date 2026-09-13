@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import connectToDatabase from "@/lib/db";
 import Project from "@/lib/models/Project";
-import { authSeedProject } from "@/lib/seedProject";
+import {
+  authSeedProject,
+  feedbackBoardSeedProject,
+  allSeedProjects,
+} from "@/lib/seedProject";
 
 export const dynamic = "force-dynamic";
 
@@ -9,47 +13,47 @@ export async function GET() {
   try {
     await connectToDatabase();
 
-    // Ensure the seed project exists and has all files in MongoDB
-    let dbProject = await Project.findOne({
-      $or: [{ slug: "build-auth" }, { slug: "build-express-mongodb-auth" }],
-    });
-
-    if (!dbProject || !dbProject.files || dbProject.files.length < 5) {
-      if (dbProject) {
-        dbProject.slug = authSeedProject.slug;
-        dbProject.title = authSeedProject.title;
-        dbProject.description = authSeedProject.description;
-        dbProject.track = authSeedProject.track;
-        dbProject.difficulty = authSeedProject.difficulty;
-        dbProject.tasks = authSeedProject.tasks as any;
-        dbProject.files = authSeedProject.files as any;
-        await dbProject.save().catch(() => null);
-      } else {
-        dbProject = await Project.create({
-          slug: authSeedProject.slug,
-          title: authSeedProject.title,
-          description: authSeedProject.description,
-          track: authSeedProject.track,
-          difficulty: authSeedProject.difficulty,
-          tasks: authSeedProject.tasks,
-          files: authSeedProject.files,
-        }).catch(() => null);
+    // Ensure all seed projects exist in MongoDB
+    for (const seed of allSeedProjects) {
+      let dbProj = await Project.findOne({ slug: seed.slug });
+      if (!dbProj || !dbProj.files || dbProj.files.length < 4) {
+        if (dbProj) {
+          dbProj.title = seed.title;
+          dbProj.description = seed.description;
+          dbProj.track = seed.track;
+          dbProj.difficulty = seed.difficulty;
+          dbProj.tasks = seed.tasks as any;
+          dbProj.files = seed.files as any;
+          await dbProj.save().catch(() => null);
+        } else {
+          await Project.create({
+            slug: seed.slug,
+            title: seed.title,
+            description: seed.description,
+            track: seed.track,
+            difficulty: seed.difficulty,
+            tasks: seed.tasks,
+            files: seed.files,
+          }).catch(() => null);
+        }
       }
     }
 
-    const projectsList = dbProject ? [dbProject] : [authSeedProject];
+    const projectsList = await Project.find({}).sort({ createdAt: 1 });
+    const finalProjects =
+      projectsList && projectsList.length > 0 ? projectsList : allSeedProjects;
 
     return NextResponse.json({
       success: true,
-      count: projectsList.length,
-      data: projectsList,
+      count: finalProjects.length,
+      data: finalProjects,
     });
   } catch (error: any) {
-    // Graceful fallback to in-memory seed project if DB connection fails
+    // Graceful fallback to in-memory seed projects if DB connection fails
     return NextResponse.json({
       success: true,
-      count: 1,
-      data: [authSeedProject],
+      count: allSeedProjects.length,
+      data: allSeedProjects,
     });
   }
 }

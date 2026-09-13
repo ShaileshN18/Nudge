@@ -246,10 +246,10 @@ export default function LivePreviewView({
             </div>
             <div className="space-y-1.5">
               <h3 className="text-base font-bold text-white">
-                WebContainer Preview Offline
+                Dev Server Offline
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Start your Node.js application to see the interactive live frontend, test authentication API routes, and inspect real-time responses.
+                Start your application to see the interactive live preview, test routes, and inspect real-time updates.
               </p>
             </div>
             <button
@@ -260,12 +260,12 @@ export default function LivePreviewView({
               {startingServer ? (
                 <>
                   <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  <span>Starting Node.js Server...</span>
+                  <span>Starting Dev Server...</span>
                 </>
               ) : (
                 <>
                   <Play className="h-3.5 w-3.5 fill-white" />
-                  <span>Start Server on :5000</span>
+                  <span>Start Dev Server</span>
                 </>
               )}
             </button>

@@ -190,6 +190,183 @@ export async function runCommand(
   return await process.exit;
 }
 
+export interface DetectedServerCommand {
+  command: string;
+  args: string[];
+  type: "npm-script" | "node-server" | "static-html";
+  description: string;
+}
+
+/**
+ * Ensures a lightweight, zero-dependency static HTTP server script exists in the WebContainer.
+ * Used to serve index.html / frontend assets when no custom backend or dev server exists.
+ */
+export async function ensureStaticServerFile(): Promise<string> {
+  const scriptName = ".nudge_static_server.cjs";
+  const scriptContent = `const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+const PORT = 5000;
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+};
+
+const server = http.createServer((req, res) => {
+  const urlPath = req.url ? req.url.split('?')[0] : '/';
+  let safePath = path.normalize(urlPath).replace(/^(\\.\\.[\\/\\\\])+/, '');
+  if (safePath === '/' || safePath === '\\\\') safePath = '/index.html';
+  
+  let filePath = path.join('.', safePath);
+
+  fs.stat(filePath, (err, stats) => {
+    if (!err && stats.isDirectory()) {
+      filePath = path.join(filePath, 'index.html');
+    }
+
+    fs.readFile(filePath, (readErr, data) => {
+      if (readErr) {
+        if (fs.existsSync('index.html') && !path.extname(safePath)) {
+          fs.readFile('index.html', (spaErr, spaData) => {
+            if (spaErr) {
+              res.writeHead(404, { 'Content-Type': 'text/plain' });
+              res.end('404 Not Found');
+            } else {
+              res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+              res.end(spaData);
+            }
+          });
+          return;
+        }
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('404 Not Found: ' + urlPath);
+        return;
+      }
+
+      const ext = path.extname(filePath).toLowerCase();
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': contentType });
+      res.end(data);
+    });
+  });
+});
+
+server.listen(PORT, () => {
+  console.log('🚀 Static Web Server listening on port ' + PORT);
+});
+`;
+  await writeProjectFile(scriptName, scriptContent);
+  return scriptName;
+}
+
+/**
+ * Automatically inspects the WebContainer filesystem and detects the appropriate
+ * command to start the project's dev/web server.
+ */
+export async function detectServerCommand(): Promise<DetectedServerCommand> {
+  const container = await getWebContainer();
+  let rootFiles: string[] = [];
+  try {
+    const entries = await container.fs.readdir(".", { withFileTypes: true });
+    rootFiles = entries.map((e) => (typeof e === "string" ? e : e.name));
+  } catch (err) {
+    console.warn("Failed to read root directory for server detection:", err);
+  }
+
+  // 1. Check package.json scripts
+  if (rootFiles.includes("package.json")) {
+    try {
+      const rawPkg = await container.fs.readFile("package.json", "utf-8");
+      const pkg = JSON.parse(rawPkg);
+      if (pkg.scripts?.dev) {
+        return {
+          command: "npm",
+          args: ["run", "dev"],
+          type: "npm-script",
+          description: "npm run dev",
+        };
+      }
+      if (pkg.scripts?.start) {
+        return {
+          command: "npm",
+          args: ["start"],
+          type: "npm-script",
+          description: "npm start",
+        };
+      }
+    } catch {
+      // Ignore JSON parse error, fall through
+    }
+  }
+
+  // 2. Check Node backend server entry points
+  const candidateServers = [
+    "server.js",
+    "app.js",
+    "index.js",
+    "src/server.js",
+    "src/index.js",
+    "src/app.js",
+  ];
+  for (const candidate of candidateServers) {
+    if (candidate.includes("/")) {
+      try {
+        const stat = await container.fs.readFile(candidate, "utf-8");
+        if (stat) {
+          return {
+            command: "node",
+            args: [candidate],
+            type: "node-server",
+            description: `node ${candidate}`,
+          };
+        }
+      } catch {
+        // Does not exist
+      }
+    } else if (rootFiles.includes(candidate)) {
+      return {
+        command: "node",
+        args: [candidate],
+        type: "node-server",
+        description: `node ${candidate}`,
+      };
+    }
+  }
+
+  // 3. Check for HTML frontend projects (e.g. index.html or any html file)
+  const hasHtml = rootFiles.some((f) => f.toLowerCase().endsWith(".html"));
+  if (hasHtml || rootFiles.includes("index.html")) {
+    const staticScript = await ensureStaticServerFile();
+    return {
+      command: "node",
+      args: [staticScript],
+      type: "static-html",
+      description: "Static Web Server (index.html)",
+    };
+  }
+
+  // 4. Default fallback: create static server for current directory
+  const staticScript = await ensureStaticServerFile();
+  return {
+    command: "node",
+    args: [staticScript],
+    type: "static-html",
+    description: "WebContainer Dev Server",
+  };
+}
+
 /**
  * Starts the project's dev server and listens for WebContainer's 'server-ready' event.
  * Obtains the live preview URL dynamically (does not assume localhost).
@@ -197,10 +374,22 @@ export async function runCommand(
 export async function startDevServer(options: DevServerOptions = {}): Promise<{
   process: WebContainerProcess;
   urlPromise: Promise<{ port: number; url: string }>;
+  commandUsed: string;
 }> {
   const webcontainer = await getWebContainer();
-  const command = options.command || "npm";
-  const args = options.args || ["run", "dev"];
+  
+  let command = options.command;
+  let args = options.args;
+  let commandDescription = "";
+
+  if (!command) {
+    const detected = await detectServerCommand();
+    command = detected.command;
+    args = detected.args;
+    commandDescription = detected.description;
+  } else {
+    commandDescription = `${command} ${(args || []).join(" ")}`.trim();
+  }
 
   let resolveServerUrl: (val: { port: number; url: string }) => void;
   const urlPromise = new Promise<{ port: number; url: string }>((resolve) => {
@@ -212,7 +401,7 @@ export async function startDevServer(options: DevServerOptions = {}): Promise<{
     resolveServerUrl({ port, url });
   });
 
-  const process = await spawnProcess(command, args, {
+  const process = await spawnProcess(command, args || [], {
     output: options.onOutput,
   });
 
@@ -220,7 +409,7 @@ export async function startDevServer(options: DevServerOptions = {}): Promise<{
     unsubscribe();
   });
 
-  return { process, urlPromise };
+  return { process, urlPromise, commandUsed: commandDescription };
 }
 
 /**

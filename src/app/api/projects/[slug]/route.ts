@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import connectToDatabase from "@/lib/db";
 import Project from "@/lib/models/Project";
-import { authSeedProject } from "@/lib/seedProject";
+import {
+  authSeedProject,
+  feedbackBoardSeedProject,
+} from "@/lib/seedProject";
 
 export const dynamic = "force-dynamic";
 
@@ -17,48 +20,64 @@ export async function GET(
     slug = "";
   }
 
-  // Normalize slug: whether user accesses "build-auth" or "build-express-mongodb-auth" or "build_auth"
+  const isFeedbackSlug =
+    slug === "feedback-board" ||
+    slug === "feedback_board" ||
+    slug === "build-feedback-board";
+
   const isAuthSlug =
     slug === "build-auth" ||
     slug === "build_auth" ||
     slug === "build-express-mongodb-auth" ||
     slug === "default" ||
-    !slug;
+    (!slug && !isFeedbackSlug);
+
+  const fallbackSeed = isFeedbackSlug
+    ? feedbackBoardSeedProject
+    : authSeedProject;
 
   let project = null;
 
   try {
     await connectToDatabase();
     project = await Project.findOne({
-      $or: [{ slug }, { slug: "build-auth" }, { slug: "build_auth" }, { slug: "build-express-mongodb-auth" }],
+      $or: [
+        { slug },
+        isFeedbackSlug
+          ? { slug: "feedback-board" }
+          : { slug: "build-auth" },
+      ],
     });
 
-    if (!project && isAuthSlug) {
+    if (!project) {
       project = await Project.create({
-        slug: authSeedProject.slug,
-        title: authSeedProject.title,
-        description: authSeedProject.description,
-        track: authSeedProject.track,
-        difficulty: authSeedProject.difficulty,
-        tasks: authSeedProject.tasks,
-        files: authSeedProject.files,
-      }).catch(() => authSeedProject);
-    } else if (project && (!project.files || project.files.length < 5)) {
-      project.slug = authSeedProject.slug;
-      project.title = authSeedProject.title;
-      project.description = authSeedProject.description;
-      project.track = authSeedProject.track;
-      project.difficulty = authSeedProject.difficulty;
-      project.tasks = authSeedProject.tasks as any;
-      project.files = authSeedProject.files as any;
+        slug: fallbackSeed.slug,
+        title: fallbackSeed.title,
+        description: fallbackSeed.description,
+        track: fallbackSeed.track,
+        difficulty: fallbackSeed.difficulty,
+        tasks: fallbackSeed.tasks,
+        files: fallbackSeed.files,
+      }).catch(() => fallbackSeed);
+    } else if (project && (!project.files || project.files.length < 4)) {
+      project.slug = fallbackSeed.slug;
+      project.title = fallbackSeed.title;
+      project.description = fallbackSeed.description;
+      project.track = fallbackSeed.track;
+      project.difficulty = fallbackSeed.difficulty;
+      project.tasks = fallbackSeed.tasks as any;
+      project.files = fallbackSeed.files as any;
       await project.save().catch(() => null);
     }
   } catch (dbError: any) {
-    console.warn(`Database access failed for project ${slug}, using seed project:`, dbError?.message);
-    project = authSeedProject;
+    console.warn(
+      `Database access failed for project ${slug}, using seed project:`,
+      dbError?.message
+    );
+    project = fallbackSeed;
   }
 
-  const finalProject = project || authSeedProject;
+  const finalProject = project || fallbackSeed;
 
   return NextResponse.json({
     success: true,
