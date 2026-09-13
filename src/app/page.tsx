@@ -110,6 +110,9 @@ export default function Home() {
   }, []);
 
   const isConnected = dbStatus?.status === "ok";
+  const workspaceUrl = currentUser
+    ? "/project/build-auth"
+    : "/login?redirect=/project/build-auth";
 
   return (
     <div className="min-h-screen flex flex-col bg-[#07090f] text-slate-100 selection:bg-indigo-500/30">
@@ -207,11 +210,15 @@ export default function Home() {
             )}
 
             <Link
-              href="/project/build-auth"
+              href={workspaceUrl}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/25"
             >
-              <Play className="h-3.5 w-3.5 fill-white" />
-              <span>Launch Workspace</span>
+              {currentUser ? (
+                <Play className="h-3.5 w-3.5 fill-white" />
+              ) : (
+                <Lock className="h-3.5 w-3.5 text-amber-300" />
+              )}
+              <span>{currentUser ? "Launch Workspace" : "Log In to Launch"}</span>
             </Link>
           </div>
         </div>
@@ -261,11 +268,15 @@ export default function Home() {
           {/* CTA Buttons */}
           <div className="flex items-center justify-center gap-4 pt-2">
             <Link
-              href="/project/build-auth"
+              href={workspaceUrl}
               className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 flex items-center gap-2 transition-all hover:scale-[1.02]"
             >
-              <Play className="h-4 w-4 fill-white" />
-              <span>Launch Seed Project</span>
+              {currentUser ? (
+                <Play className="h-4 w-4 fill-white" />
+              ) : (
+                <Lock className="h-4 w-4 text-amber-300" />
+              )}
+              <span>{currentUser ? "Launch Seed Project" : "Log In to Launch Project"}</span>
               <ArrowRight className="h-4 w-4 ml-1" />
             </Link>
             <a
@@ -326,11 +337,15 @@ export default function Home() {
               {/* Action Button */}
               <div className="shrink-0">
                 <Link
-                  href="/project/build-auth"
+                  href={workspaceUrl}
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 transition-all hover:scale-[1.02]"
                 >
-                  <Play className="h-4 w-4 fill-white" />
-                  <span>Open Interactive Workspace</span>
+                  {currentUser ? (
+                    <Play className="h-4 w-4 fill-white" />
+                  ) : (
+                    <Lock className="h-4 w-4 text-amber-300" />
+                  )}
+                  <span>{currentUser ? "Open Interactive Workspace" : "Log In to Open Workspace"}</span>
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>

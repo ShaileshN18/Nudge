@@ -63,11 +63,13 @@ export interface ProjectData {
 interface CodingEnvironmentProps {
   initialProject?: ProjectData | null;
   projectIdOrSlug: string;
+  user?: { id: string; name: string; email: string } | null;
 }
 
 export default function CodingEnvironment({
   initialProject,
   projectIdOrSlug,
+  user,
 }: CodingEnvironmentProps) {
   const [project, setProject] = useState<ProjectData | null>(initialProject || null);
   const [loading, setLoading] = useState(!initialProject);
@@ -628,13 +630,27 @@ export default function CodingEnvironment({
             </div>
           )}
 
-          {/* User Avatar matching top right 'T' circle in the screenshot */}
-          <div
-            className="h-6 w-6 rounded-full bg-blue-600/30 border border-blue-500/50 flex items-center justify-center text-xs font-bold text-blue-300 shadow-sm"
-            title="User Profile"
-          >
-            T
-          </div>
+          {/* User Profile / Avatar */}
+          {user ? (
+            <div className="flex items-center gap-2">
+              <div
+                className="h-6 w-6 rounded-full bg-gradient-to-tr from-indigo-600 to-blue-500 border border-indigo-400/50 flex items-center justify-center text-xs font-bold text-white shadow-sm uppercase"
+                title={`${user.name} (${user.email})`}
+              >
+                {user.name ? user.name[0] : "U"}
+              </div>
+              <span className="text-xs text-slate-300 font-medium hidden sm:inline">
+                {user.name}
+              </span>
+            </div>
+          ) : (
+            <div
+              className="h-6 w-6 rounded-full bg-blue-600/30 border border-blue-500/50 flex items-center justify-center text-xs font-bold text-blue-300 shadow-sm"
+              title="User Profile"
+            >
+              U
+            </div>
+          )}
         </div>
       </header>
 

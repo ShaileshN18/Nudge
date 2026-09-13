@@ -8,8 +8,14 @@ const JWT_SECRET = new TextEncoder().encode(JWT_SECRET_STRING);
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Protect project workspace routes
-  if (pathname.startsWith("/projects/")) {
+  // Protect project workspace routes (both /project/ and /projects/)
+  const isProjectRoute =
+    pathname === "/project" ||
+    pathname === "/projects" ||
+    pathname.startsWith("/project/") ||
+    pathname.startsWith("/projects/");
+
+  if (isProjectRoute) {
     const token = request.cookies.get("nudge_auth_token")?.value;
 
     if (!token) {
@@ -35,5 +41,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/projects/:path*"],
+  matcher: ["/project", "/project/:path*", "/projects", "/projects/:path*"],
 };
