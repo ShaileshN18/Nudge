@@ -614,12 +614,16 @@ export default function FileTree({
 
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const filesRef = useRef(files);
+  filesRef.current = files;
+
   const loadTree = useCallback(async () => {
     setLoading(true);
     try {
       let nodes = await buildTree(".");
-      if (nodes.length === 0 && files && files.length > 0) {
-        nodes = buildTreeFromFiles(files);
+      const currentFiles = filesRef.current;
+      if (nodes.length === 0 && currentFiles && currentFiles.length > 0) {
+        nodes = buildTreeFromFiles(currentFiles);
       }
       setTree(nodes);
       // Auto-expand top-level directories on first load
@@ -632,17 +636,22 @@ export default function FileTree({
       });
     } catch (err) {
       console.error("Failed to read WebContainer FS:", err);
-      if (files && files.length > 0) {
-        setTree(buildTreeFromFiles(files));
+      const currentFiles = filesRef.current;
+      if (currentFiles && currentFiles.length > 0) {
+        setTree(buildTreeFromFiles(currentFiles));
       }
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const filePathsKey = React.useMemo(() => {
+    return (files || []).map((f: any) => f.path).join(",");
   }, [files]);
 
   useEffect(() => {
     loadTree();
-  }, [loadTree, refreshKey]);
+  }, [loadTree, refreshKey, filePathsKey]);
 
   // Close context menu on outside click or escape
   useEffect(() => {
