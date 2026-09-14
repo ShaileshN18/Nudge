@@ -5,7 +5,7 @@ export interface ITask {
   title: string;
   description: string;
   goal: string;
-  targetFiles?: string[];
+  targetFiles: string[];
   evaluationCriteria?: string[];
 }
 
@@ -36,7 +36,7 @@ const TaskSchema = new Schema<ITask>(
     title: { type: String, required: true },
     description: { type: String, required: true },
     goal: { type: String, required: true },
-    targetFiles: [{ type: String }],
+    targetFiles: { type: [String], required: true, default: [] },
     evaluationCriteria: [{ type: String }],
   },
   { _id: true }
