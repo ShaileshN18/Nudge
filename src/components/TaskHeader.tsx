@@ -25,7 +25,7 @@ export interface TaskItem {
   title: string;
   description: string;
   goal?: string;
-  targetFiles?: string[];
+  targetFiles: string[];
   evaluationCriteria?: string[];
 }
 
@@ -53,7 +53,8 @@ interface TaskHeaderProps {
   onChangeViewMode?: (mode: "code" | "split" | "preview") => void;
   evalResults?: {
     passed: boolean;
-    criteriaStatus?: Array<{ title: string; passed: boolean }>;
+    criteriaStatus?: Array<{ title: string; passed: boolean; feedback?: string }>;
+    overallFeedback?: string;
   } | null;
 }
 
@@ -384,7 +385,7 @@ export default function TaskHeader({
                 return (
                   <div
                     key={idx}
-                    className={`flex items-start gap-2 p-2 rounded-lg border text-xs transition-colors ${
+                    className={`flex flex-col gap-1 p-2 rounded-lg border text-xs transition-colors ${
                       isPassed
                         ? "bg-emerald-950/20 border-emerald-800/40 text-emerald-200"
                         : isFailed
@@ -392,16 +393,23 @@ export default function TaskHeader({
                         : "bg-[#141a2c]/60 border-slate-800/70 text-slate-300"
                     }`}
                   >
-                    {isPassed ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    ) : isFailed ? (
-                      <XCircle className="h-3.5 w-3.5 text-rose-400 shrink-0 mt-0.5" />
-                    ) : (
-                      <span className="h-3.5 w-3.5 rounded-full border border-slate-600 shrink-0 mt-0.5 flex items-center justify-center text-[9px] text-slate-500 font-mono">
-                        {idx + 1}
-                      </span>
+                    <div className="flex items-start gap-2">
+                      {isPassed ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                      ) : isFailed ? (
+                        <XCircle className="h-3.5 w-3.5 text-rose-400 shrink-0 mt-0.5" />
+                      ) : (
+                        <span className="h-3.5 w-3.5 rounded-full border border-slate-600 shrink-0 mt-0.5 flex items-center justify-center text-[9px] text-slate-500 font-mono">
+                          {idx + 1}
+                        </span>
+                      )}
+                      <span className="leading-tight font-medium">{crit}</span>
+                    </div>
+                    {status?.feedback && (
+                      <p className={`text-[11px] pl-5.5 leading-normal ${isPassed ? "text-emerald-300/80" : "text-rose-300/90"}`}>
+                        {status.feedback}
+                      </p>
                     )}
-                    <span className="leading-tight">{crit}</span>
                   </div>
                 );
               })}
