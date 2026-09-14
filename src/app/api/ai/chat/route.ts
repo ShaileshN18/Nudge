@@ -135,7 +135,7 @@ ${cleanedActiveContent}
     }
 
     // Built-in intelligent mentor response generator (project-agnostic fallback)
-    const reply = generateMentorResponsePlaceholder(message, task, activeFile);
+    const reply = generateMentorResponse(message, task, activeFile);
     return NextResponse.json({ reply });
   } catch (err: any) {
     console.error("AI Chat route error:", err);
