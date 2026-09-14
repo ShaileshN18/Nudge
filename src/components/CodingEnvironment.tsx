@@ -81,11 +81,15 @@ export default function CodingEnvironment({
   const [currentTaskIndex, setCurrentTaskIndex] = useState(0);
   const [evaluating, setEvaluating] = useState(false);
   const [taskCompleted, setTaskCompleted] = useState(false);
+  const [completedTasks, setCompletedTasks] = useState<string[]>([]);
   const [evalResults, setEvalResults] = useState<{
     passed: boolean;
     criteriaStatus: { title: string; passed: boolean }[];
   } | null>(null);
   const [showTaskDetailsModal, setShowTaskDetailsModal] = useState(false);
+
+  // Cloud Save State
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   // Workspace View Mode: "code" | "split" | "preview"
   const [workspaceViewMode, setWorkspaceViewMode] = useState<"code" | "split" | "preview">("code");
@@ -129,28 +133,58 @@ export default function CodingEnvironment({
   // AI Mentor state
   const [externalAiPrompt, setExternalAiPrompt] = useState<string | null>(null);
 
-  // ── Load project data if not already passed ─────────────────────────
+  // ── Load user workspace & project data ──────────────────────────────
   useEffect(() => {
     let isSubscribed = true;
 
-    async function fetchProject() {
+    async function fetchProjectWorkspace() {
       try {
-        if (!initialProject) {
-          setLoading(true);
-          const res = await fetch(`/api/projects/${projectIdOrSlug}`);
-          const json = await res.json();
-          if (!json.success || !json.data) {
-            throw new Error(json.error || "Project could not be found");
-          }
-          if (!isSubscribed) return;
-          setProject(json.data);
-          await initializeFiles(json.data.files || []);
-        } else {
-          await initializeFiles(initialProject.files || []);
+        setLoading(true);
+        const res = await fetch(`/api/user-projects/${projectIdOrSlug}`);
+        const json = await res.json();
+        if (!json.success || !json.data) {
+          throw new Error(json.error || "Project could not be found");
         }
+        if (!isSubscribed) return;
+
+        const baseProject = json.data.project;
+        const userWorkspace = json.data.userProject;
+
+        const filesToUse =
+          userWorkspace?.files && userWorkspace.files.length > 0
+            ? userWorkspace.files
+            : baseProject.files || [];
+
+        setProject({
+          ...baseProject,
+          files: filesToUse,
+        });
+
+        if (userWorkspace) {
+          if (typeof userWorkspace.currentTaskIndex === "number") {
+            setCurrentTaskIndex(userWorkspace.currentTaskIndex);
+          }
+          if (Array.isArray(userWorkspace.completedTasks)) {
+            setCompletedTasks(userWorkspace.completedTasks);
+            const currentTaskOrder = String(
+              baseProject?.tasks?.[userWorkspace.currentTaskIndex || 0]?.order ||
+                (userWorkspace.currentTaskIndex || 0) + 1
+            );
+            if (userWorkspace.completedTasks.includes(currentTaskOrder)) {
+              setTaskCompleted(true);
+            }
+          }
+        }
+
+        await initializeFiles(filesToUse, userWorkspace?.activeFilePath);
       } catch (err: any) {
-        console.error("Failed to load project:", err);
-        if (isSubscribed) setError(err.message || "Failed to load project data");
+        console.error("Failed to load user workspace:", err);
+        if (initialProject) {
+          setProject(initialProject);
+          await initializeFiles(initialProject.files || []);
+        } else if (isSubscribed) {
+          setError(err.message || "Failed to load project data");
+        }
       } finally {
         if (isSubscribed) {
           setLoading(false);
@@ -159,10 +193,11 @@ export default function CodingEnvironment({
       }
     }
 
-    async function initializeFiles(files: ProjectFile[]) {
+    async function initializeFiles(files: ProjectFile[], preferredPath?: string) {
       if (files.length > 0) {
-        // Immediately set preferred file and initial tabs so editor isn't blank
+        // Restore saved active file or choose best default
         const preferredFile =
+          (preferredPath && files.find((f) => f.path === preferredPath)) ||
           files.find((f) => f.path.includes("routes/feedback.js")) ||
           files.find((f) => f.path.includes("models/Feedback.js")) ||
           files.find((f) => f.path.includes("User.js")) ||
@@ -217,7 +252,7 @@ export default function CodingEnvironment({
       }
     }
 
-    fetchProject();
+    fetchProjectWorkspace();
 
     return () => {
       isSubscribed = false;
@@ -285,11 +320,40 @@ export default function CodingEnvironment({
   );
 
   const saveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const cloudSaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const saveFileToCloud = useCallback(
+    async (path: string, content: string) => {
+      try {
+        setSaveStatus("saving");
+        const res = await fetch(`/api/user-projects/${projectIdOrSlug}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            file: { path, content },
+            activeFilePath: path,
+          }),
+        });
+        if (res.ok) {
+          setSaveStatus("saved");
+        } else {
+          setSaveStatus("error");
+        }
+      } catch (err) {
+        console.warn("Cloud save error:", err);
+        setSaveStatus("error");
+      }
+    },
+    [projectIdOrSlug]
+  );
 
   const handleContentChange = useCallback(
     (content: string) => {
       setActiveFileContent(content);
+      setSaveStatus("saving");
+
       if (activeFilePath) {
+        // Fast local WebContainer auto-save
         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = setTimeout(async () => {
           try {
@@ -298,9 +362,15 @@ export default function CodingEnvironment({
             console.warn("Auto-save warning:", err);
           }
         }, 300);
+
+        // Debounced Cloud Save to MongoDB
+        if (cloudSaveTimeoutRef.current) clearTimeout(cloudSaveTimeoutRef.current);
+        cloudSaveTimeoutRef.current = setTimeout(() => {
+          saveFileToCloud(activeFilePath, content);
+        }, 1500);
       }
     },
-    [activeFilePath]
+    [activeFilePath, saveFileToCloud]
   );
 
   // ── Task Management & Evaluation ──────────────────────────────────
@@ -619,11 +689,29 @@ export default function CodingEnvironment({
       "Plain text passwords are never stored or returned in responses",
     ];
 
-    setTimeout(() => {
+    setTimeout(async () => {
       const results = criteria.map((c) => ({ title: c, passed: true }));
       setEvalResults({ passed: true, criteriaStatus: results });
       setTaskCompleted(true);
       setEvaluating(false);
+
+      const taskKey = String(currentTask.order || currentTaskIndex + 1);
+      const updatedCompleted = Array.from(new Set([...completedTasks, taskKey]));
+      setCompletedTasks(updatedCompleted);
+
+      // Persist task completion to MongoDB
+      try {
+        await fetch(`/api/user-projects/${projectIdOrSlug}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            completedTasks: updatedCompleted,
+            currentTaskIndex,
+          }),
+        });
+      } catch (saveErr) {
+        console.warn("Failed to persist task completion:", saveErr);
+      }
 
       setTerminalLogs((prev) => [
         ...prev,
@@ -635,16 +723,32 @@ export default function CodingEnvironment({
 
   const handleNextTask = () => {
     if (!project?.tasks || currentTaskIndex >= project.tasks.length - 1) return;
-    setCurrentTaskIndex((prev) => prev + 1);
-    setTaskCompleted(false);
+    const nextIndex = currentTaskIndex + 1;
+    setCurrentTaskIndex(nextIndex);
+    const nextTaskOrder = String(project?.tasks?.[nextIndex]?.order || nextIndex + 1);
+    setTaskCompleted(completedTasks.includes(nextTaskOrder));
     setEvalResults(null);
+
+    fetch(`/api/user-projects/${projectIdOrSlug}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentTaskIndex: nextIndex }),
+    }).catch(() => null);
   };
 
   const handlePrevTask = () => {
     if (currentTaskIndex <= 0) return;
-    setCurrentTaskIndex((prev) => prev - 1);
-    setTaskCompleted(false);
+    const prevIndex = currentTaskIndex - 1;
+    setCurrentTaskIndex(prevIndex);
+    const prevTaskOrder = String(project?.tasks?.[prevIndex]?.order || prevIndex + 1);
+    setTaskCompleted(completedTasks.includes(prevTaskOrder));
     setEvalResults(null);
+
+    fetch(`/api/user-projects/${projectIdOrSlug}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentTaskIndex: prevIndex }),
+    }).catch(() => null);
   };
 
   // Trigger prompt from Aria inline nudge into AI Mentor
@@ -703,8 +807,35 @@ export default function CodingEnvironment({
           </span>
         </div>
 
-        {/* Mounting / Ready Indicator */}
+        {/* Mounting / Ready & Cloud Save Indicator */}
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full bg-slate-800/60 border border-slate-700/50">
+            {saveStatus === "saving" && (
+              <>
+                <RefreshCw className="h-3 w-3 text-amber-400 animate-spin" />
+                <span className="text-amber-300">Saving...</span>
+              </>
+            )}
+            {saveStatus === "saved" && (
+              <>
+                <Check className="h-3 w-3 text-emerald-400" />
+                <span className="text-slate-300">Saved to cloud</span>
+              </>
+            )}
+            {saveStatus === "error" && (
+              <>
+                <AlertCircle className="h-3 w-3 text-rose-400" />
+                <span className="text-rose-300">Save error</span>
+              </>
+            )}
+            {saveStatus === "idle" && (
+              <>
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span className="text-slate-400">Cloud Synced</span>
+              </>
+            )}
+          </div>
+
           {isMounting ? (
             <div className="flex items-center gap-1.5 text-[11px] text-amber-400">
               <RefreshCw className="h-3 w-3 animate-spin" />

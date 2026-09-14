@@ -8,9 +8,13 @@ export interface IUserProjectFile {
 export interface IUserProject extends Document {
   userId: mongoose.Types.ObjectId;
   projectId: mongoose.Types.ObjectId;
+  projectSlug: string;
   files: IUserProjectFile[];
-  currentTaskId?: mongoose.Types.ObjectId;
-  completedTasks: mongoose.Types.ObjectId[];
+  currentTaskIndex: number;
+  currentTaskId?: string;
+  completedTasks: string[];
+  activeFilePath?: string;
+  lastActiveAt: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -27,26 +31,44 @@ const UserProjectSchema = new Schema<IUserProject>(
       ref: "Project",
       required: true,
     },
+    projectSlug: {
+      type: String,
+      required: true,
+      index: true,
+    },
     files: [
       {
         path: { type: String, required: true },
         content: { type: String, default: "" },
       },
     ],
+    currentTaskIndex: {
+      type: Number,
+      default: 0,
+    },
     currentTaskId: {
-      type: Schema.Types.ObjectId,
+      type: String,
       required: false,
     },
     completedTasks: [
       {
-        type: Schema.Types.ObjectId,
+        type: String,
       },
     ],
+    activeFilePath: {
+      type: String,
+      default: "",
+    },
+    lastActiveAt: {
+      type: Date,
+      default: Date.now,
+    },
   },
   { timestamps: true }
 );
 
-UserProjectSchema.index({ userId: 1, projectId: 1 }, { unique: true });
+UserProjectSchema.index({ userId: 1, projectSlug: 1 }, { unique: true });
+UserProjectSchema.index({ userId: 1, projectId: 1 });
 
 export default mongoose.models.UserProject ||
   mongoose.model<IUserProject>("UserProject", UserProjectSchema);

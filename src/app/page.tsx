@@ -42,6 +42,21 @@ interface UserProfile {
   email: string;
 }
 
+interface EnrolledProject {
+  _id: string;
+  projectSlug: string;
+  title: string;
+  description: string;
+  track: string;
+  difficulty: string;
+  totalTasks: number;
+  completedTasksCount: number;
+  progressPercent: number;
+  currentTaskIndex: number;
+  lastActiveAt: string;
+  filesCount: number;
+}
+
 interface DbStatusResponse {
   status: string;
   message?: string;
@@ -58,6 +73,7 @@ interface DbStatusResponse {
 export default function Home() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [userProjects, setUserProjects] = useState<EnrolledProject[]>([]);
   const [dbStatus, setDbStatus] = useState<DbStatusResponse | null>(null);
   const [projects, setProjects] = useState<SeedProject[]>(allSeedProjects);
   const [selectedSlug, setSelectedSlug] = useState<string>("feedback-board");
@@ -109,12 +125,20 @@ export default function Home() {
   useEffect(() => {
     fetchHealthAndProjects();
 
-    // Check user auth session
+    // Check user auth session & enrolled projects
     fetch("/api/auth/me")
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.user) {
           setCurrentUser(data.user);
+          fetch("/api/user-projects")
+            .then((res) => res.json())
+            .then((up) => {
+              if (up.success && Array.isArray(up.data)) {
+                setUserProjects(up.data);
+              }
+            })
+            .catch(() => null);
         }
       })
       .catch((err) => console.error("Auth check error:", err));
@@ -299,6 +323,70 @@ export default function Home() {
           </div>
         </section>
 
+        {/* User's Enrolled In-Progress Workspaces */}
+        {currentUser && userProjects.length > 0 && (
+          <section className="space-y-4 pt-2">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-indigo-400 animate-pulse" />
+                <h2 className="text-xl font-bold text-white tracking-tight">Your Enrolled Projects</h2>
+              </div>
+              <span className="text-xs text-slate-400 font-medium">
+                {userProjects.length} active {userProjects.length === 1 ? "workspace" : "workspaces"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {userProjects.map((up) => (
+                <div
+                  key={up._id}
+                  className="p-5 rounded-2xl bg-gradient-to-br from-[#0e1322] to-[#0a0e19] border border-slate-800 hover:border-indigo-500/50 transition-all space-y-4 group shadow-lg"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                          {up.track}
+                        </span>
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 capitalize">
+                          {up.difficulty}
+                        </span>
+                      </div>
+                      <h3 className="text-base font-bold text-white group-hover:text-indigo-300 transition-colors">
+                        {up.title}
+                      </h3>
+                    </div>
+                    <Link
+                      href={`/project/${up.projectSlug}`}
+                      className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/20 flex items-center gap-1.5 shrink-0"
+                    >
+                      <Play className="h-3 w-3 fill-white" />
+                      <span>Resume</span>
+                    </Link>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400">
+                        Task {(up.currentTaskIndex || 0) + 1} of {up.totalTasks}
+                      </span>
+                      <span className="text-emerald-400 font-semibold">
+                        {up.completedTasksCount} of {up.totalTasks} Done ({up.progressPercent}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-800/80 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-indigo-500 via-blue-500 to-emerald-400 h-full transition-all duration-500"
+                        style={{ width: `${Math.max(5, up.progressPercent)}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Featured Projects Section */}
         <section id="seed-project" className="space-y-6 pt-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
@@ -314,24 +402,63 @@ export default function Home() {
             
             {/* Project Switcher Tabs */}
             <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {projects.map((p) => (
-                <button
-                  key={p.slug}
-                  onClick={() => setSelectedSlug(p.slug)}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    project.slug === p.slug
-                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
-                      : "bg-slate-900/90 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800"
-                  }`}
-                >
-                  {p.title}
-                </button>
-              ))}
+              {projects.map((p) => {
+                const up = userProjects.find((u) => u.projectSlug === p.slug);
+                return (
+                  <button
+                    key={p.slug}
+                    onClick={() => setSelectedSlug(p.slug)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                      project.slug === p.slug
+                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                        : "bg-slate-900/90 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800"
+                    }`}
+                  >
+                    <span>{p.title}</span>
+                    {up && up.completedTasksCount > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        {up.progressPercent}%
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           {/* Main Project Card */}
           <div className="bg-gradient-to-b from-[#0e1322] to-[#0a0e19] border border-slate-800/90 hover:border-slate-700 rounded-2xl p-6 lg:p-8 space-y-8 shadow-2xl relative overflow-hidden group">
+            {/* If enrolled, show progress banner */}
+            {(() => {
+              const enrolled = userProjects.find((u) => u.projectSlug === project.slug);
+              if (!enrolled) return null;
+              return (
+                <div className="p-4 rounded-xl bg-indigo-950/40 border border-indigo-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider">
+                        Workspace In Progress
+                      </span>
+                      <span className="text-xs text-slate-400">
+                        • Task {(enrolled.currentTaskIndex || 0) + 1} of {enrolled.totalTasks}
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-indigo-500 to-emerald-400 h-full transition-all duration-500"
+                        style={{ width: `${Math.max(5, enrolled.progressPercent)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-sm font-bold text-emerald-400">
+                      {enrolled.completedTasksCount} / {enrolled.totalTasks} Completed ({enrolled.progressPercent}%)
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Top Row: Meta Tags & Title */}
             <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
               <div className="space-y-3 max-w-3xl">
@@ -366,11 +493,23 @@ export default function Home() {
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 transition-all hover:scale-[1.02]"
                 >
                   {currentUser ? (
-                    <Play className="h-4 w-4 fill-white" />
+                    userProjects.some((u) => u.projectSlug === project.slug) ? (
+                      <>
+                        <Play className="h-4 w-4 fill-white" />
+                        <span>Continue Building</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-4 w-4 fill-white" />
+                        <span>Start Project</span>
+                      </>
+                    )
                   ) : (
-                    <Lock className="h-4 w-4 text-amber-300" />
+                    <>
+                      <Lock className="h-4 w-4 text-amber-300" />
+                      <span>Log In to Open Workspace</span>
+                    </>
                   )}
-                  <span>{currentUser ? "Open Interactive Workspace" : "Log In to Open Workspace"}</span>
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
