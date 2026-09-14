@@ -282,7 +282,7 @@ export default function CodeEditor({
         {
           range: new monaco.Range(start, 1, end, 1),
           options: {
-            isWholeLine: true,
+            isWholeLine: true // line highlight,
             className: "monaco-nudge-line-highlight",
             linesDecorationsClassName: "monaco-nudge-gutter-indicator",
             glyphMarginClassName: "monaco-nudge-glyph-margin",
