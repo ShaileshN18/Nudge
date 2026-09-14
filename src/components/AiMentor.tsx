@@ -13,7 +13,12 @@ import {
   ChevronRight,
   Copy,
   Check,
+  Lightbulb,
+  RefreshCw,
 } from "lucide-react";
+
+import { readProjectFile } from "@/lib/webcontainer";
+import { buildAIContext } from "@/lib/aiContext";
 
 export interface ChatMessage {
   id: string;
@@ -28,20 +33,22 @@ interface AiMentorProps {
     title: string;
     description: string;
     goal?: string;
-    targetFiles?: string[];
+    targetFiles: string[];
     evaluationCriteria?: string[];
   };
   activeFilePath?: string;
   activeFileContent?: string;
   externalPrompt?: string | null;
   onClearExternalPrompt?: () => void;
-  terminalLogs?: string[];
-  evalResults?: {
-    passed: boolean;
-    criteriaStatus?: Array<{ title: string; passed: boolean }>;
-  } | null;
-  projectFiles?: Array<{ path: string; summary?: string }>;
-  onHighlightInEditor?: (path: string, line: number, endLine?: number) => void;
+  files?: Array<{ path: string; content: string }>;
+  modifiedFiles?: string[];
+  onNudgeReceived?: (nudge: {
+    targetFile: string;
+    startLine: number;
+    endLine: number;
+    hint: string;
+    concept?: string;
+  }) => void;
 }
 
 export default function AiMentor({
@@ -50,10 +57,9 @@ export default function AiMentor({
   activeFileContent,
   externalPrompt,
   onClearExternalPrompt,
-  terminalLogs,
-  evalResults,
-  projectFiles,
-  onHighlightInEditor,
+  files,
+  modifiedFiles,
+  onNudgeReceived,
 }: AiMentorProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -65,13 +71,14 @@ I'm here to guide you through **Task ${currentTask?.order || 1}: ${
         currentTask?.title || "Define User Model & Password Hashing"
       }**.
 
-Ask me for code reviews, architectural explanations, or debugging help whenever you need guidance!`,
+Ask me for code reviews, architectural explanations, or click **"Need a Nudge"** for subtle hints!`,
       timestamp: new Date(),
     },
   ]);
 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isNudging, setIsNudging // nudging state] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -81,7 +88,7 @@ Ask me for code reviews, architectural explanations, or debugging help whenever 
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isLoading]);
+  }, [messages, isLoading, isNudging]);
 
   // Handle external prompt trigger (e.g. from the Aria nudge tooltip!)
   useEffect(() => {
@@ -90,6 +97,105 @@ Ask me for code reviews, architectural explanations, or debugging help whenever 
       onClearExternalPrompt?.();
     }
   }, [externalPrompt]);
+
+  const handleNeedNudge = async () => {
+    if (isNudging || isLoading || !currentTask) return;
+    setIsNudging(true);
+
+    try {
+      // 1. Read targetFiles directly from WebContainer (single source of truth)
+      const targetFilePaths = currentTask.targetFiles || [];
+      const targetFilesContent: Array<{ path: string; content: string }> = [];
+
+      for (const p of targetFilePaths) {
+        const clean = p.replace(/^\/+/, "");
+        try {
+          const content = await readProjectFile(clean);
+          targetFilesContent.push({ path: clean, content });
+        } catch {
+          if (activeFilePath && clean === activeFilePath.replace(/^\/+/, "")) {
+            targetFilesContent.push({ path: clean, content: activeFileContent || "" });
+          } else {
+            const fallback = files?.find((f) => f.path.replace(/^\/+/, "") === clean);
+            targetFilesContent.push({ path: clean, content: fallback?.content || "" });
+          }
+        }
+      }
+
+      // 2. Build minimal, focused AI context
+      const aiContext = buildAIContext(currentTask, targetFilesContent);
+
+      const res = await fetch("/api/ai/nudge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task: {
+            order: aiContext.taskOrder,
+            title: aiContext.taskTitle,
+            goal: aiContext.goal,
+            description: aiContext.description,
+            targetFiles: aiContext.targetFiles,
+            evaluationCriteria: aiContext.evaluationCriteria,
+          },
+          files: aiContext.files,
+          activeFilePath,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to generate hint");
+      }
+
+      const nudge = data.nudge;
+      const targetFile = nudge.targetFile || activeFilePath || "";
+      const lineText = nudge.startLine
+        ? ` (Inspect line ${nudge.startLine}${
+            nudge.endLine && nudge.endLine !== nudge.startLine
+              ? `-${nudge.endLine}`
+              : ""
+          })`
+        : "";
+
+      // Post gentle hint message
+      const hintMsg: ChatMessage = {
+        id: "nudge-" + Date.now(),
+        role: "assistant",
+        content: `### 💡 Gentle Nudge ${nudge.concept ? `• ${nudge.concept}` : ""}
+${nudge.hint}
+
+*Target: \`${targetFile}\`${lineText} — Highlighted in your editor.*`,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, hintMsg]);
+
+      // Trigger line decoration in CodeEditor if line numbers provided
+      if (onNudgeReceived && nudge) {
+        onNudgeReceived({
+          targetFile,
+          startLine: nudge.startLine,
+          endLine: nudge.endLine || nudge.startLine,
+          hint: nudge.hint,
+          concept: nudge.concept,
+        });
+      }
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: "err-" + Date.now(),
+          role: "assistant",
+          content: `⚠️ **Could not generate hint:** ${
+            err?.message || "Please make sure GEMINI_API_KEY is configured in .env."
+          }`,
+          timestamp: new Date(),
+        },
+      ]);
+    } finally {
+      setIsNudging(false);
+    }
+  };
 
   const handleSend = async (messageText?: string) => {
     const textToSend = messageText || input;
@@ -115,12 +221,9 @@ Ask me for code reviews, architectural explanations, or debugging help whenever 
           history: messages.map((m) => ({ role: m.role, content: m.content })),
           task: currentTask,
           activeFile: {
-            path: activeFilePath || "",
+            path: activeFilePath || "Post.jsx",
             content: activeFileContent || "",
           },
-          terminalLogs: terminalLogs || [],
-          evalResults: evalResults || null,
-          projectFiles: (projectFiles || []).map((f) => ({ path: f.path })),
         }),
       });
 
@@ -181,26 +284,10 @@ Ready to assist with **Task ${currentTask?.order || 1}: ${
   };
 
   const quickPrompts = [
-    {
-      label: "🐞 What am I doing wrong?",
-      prompt: "Can you inspect my active file, test results, and terminal logs to tell me what I am doing wrong, why tests are failing, and highlight the bugs in my code?",
-      icon: Bug,
-    },
-    {
-      label: "🔍 Review active file",
-      prompt: "Please review my active file, identify any syntax or logical issues, and highlight lines that need fixing",
-      icon: FileCode,
-    },
-    {
-      label: "📋 Explain requirements",
-      prompt: "Can you explain the requirements and expected data flow for this task?",
-      icon: HelpCircle,
-    },
-    {
-      label: "🛡️ Security best practices",
-      prompt: "What are the security best practices for JWT tokens and password salts?",
-      icon: Sparkles,
-    },
+    { label: "Review active file", prompt: "Please review my active file and identify any syntax or logical issues", icon: FileCode },
+    { label: "Explain requirements", prompt: "Can you explain the requirements and expected data flow for this task?", icon: HelpCircle },
+    { label: "Why is code failing?", prompt: "Why might my tests or route handlers fail?", icon: Bug },
+    { label: "Security best practices", prompt: "What are the security best practices for JWT tokens and password salts?", icon: Sparkles },
   ];
 
   return (
@@ -222,13 +309,34 @@ Ready to assist with **Task ${currentTask?.order || 1}: ${
           </div>
         </div>
 
-        <button
-          onClick={handleResetChat}
-          title="Reset Chat"
-          className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 rounded-md transition-colors"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={handleNeedNudge}
+            disabled={isNudging}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+            title="Get a gentle, subtle nudge without spoilers"
+          >
+            {isNudging ? (
+              <>
+                <RefreshCw className="h-3 w-3 animate-spin text-amber-400" />
+                <span className="text-[11px]">Nudging...</span>
+              </>
+            ) : (
+              <>
+                <Lightbulb className="h-3 w-3 text-amber-400" />
+                <span className="text-[11px]">Need a Nudge</span>
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={handleResetChat}
+            title="Reset Chat"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 rounded-md transition-colors"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Messages Container */}
@@ -277,7 +385,7 @@ Ready to assist with **Task ${currentTask?.order || 1}: ${
 
                 {/* Simple Markdown Parser / Renderer */}
                 <div className="prose prose-invert prose-xs max-w-none space-y-2">
-                  {renderMarkdownContent(msg.content, onHighlightInEditor)}
+                  {renderMarkdownContent(msg.content)}
                 </div>
               </div>
             </div>
@@ -350,10 +458,7 @@ Ready to assist with **Task ${currentTask?.order || 1}: ${
 }
 
 // ── Simple Markdown Renderer for clean formatted responses ──
-function renderMarkdownContent(
-  content: string,
-  onHighlightInEditor?: (path: string, line: number, endLine?: number) => void
-) {
+function renderMarkdownContent(content: string) {
   const parts = content.split(/(```[\s\S]*?```)/g);
 
   return parts.map((part, index) => {
@@ -385,53 +490,6 @@ function renderMarkdownContent(
       <div key={index} className="space-y-1.5">
         {lines.map((line, lIdx) => {
           if (!line.trim()) return null;
-
-          // Check for :::highlight{file="..." line=... endLine=...}:::
-          const hlMatch = line
-            .trim()
-            .match(/:::highlight\{file="([^"]+)"\s+line=(\d+)(?:\s+endLine=(\d+))?\}:::/);
-
-          if (hlMatch) {
-            const file = hlMatch[1];
-            const startLine = parseInt(hlMatch[2], 10);
-            const endLine = hlMatch[3] ? parseInt(hlMatch[3], 10) : startLine;
-
-            return (
-              <div
-                key={lIdx}
-                className="my-2.5 p-3 rounded-xl bg-gradient-to-r from-rose-950/60 via-slate-900/90 to-[#131929] border border-rose-500/40 flex items-center justify-between gap-3 shadow-lg shadow-rose-950/30"
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="h-7 w-7 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
-                    <Bug className="h-4 w-4 animate-pulse" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-rose-300">
-                        Bug Identified
-                      </span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-200 border border-rose-500/30">
-                        Line {startLine}
-                        {endLine && endLine !== startLine ? `–${endLine}` : ""}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 font-mono truncate">
-                      {file}
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => onHighlightInEditor?.(file, startLine, endLine)}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-xs font-semibold shadow-md shadow-rose-600/30 transition-all cursor-pointer shrink-0"
-                  title="Jump to line and highlight in code editor"
-                >
-                  <span>Highlight in Code</span>
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            );
-          }
 
           if (line.startsWith("### ")) {
             return (
