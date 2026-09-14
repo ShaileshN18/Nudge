@@ -49,3 +49,17 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #334155;
 }
+crollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Monaco Editor "Need a Nudge" Line Highlight & Red Gutter Dot */
+.monaco-editor .monaco-nudge-line-highlight {
+  background: linear-gradient(90deg, rgba(225, 29, 72, 0.22) 0%, rgba(185, 28, 28, 0.08) 100%) !important;
+  border-left: 3px solid #ef4444 !important;
+  box-shadow: inset 0 0 16px rgba(225, 29, 72, 0.15) !important;
+  animation: nudgeLinePulse 2.8s infinite ease-in-out;
+}
+
+@keyframes nudgeLinePulse {
+  0%, 100% {
