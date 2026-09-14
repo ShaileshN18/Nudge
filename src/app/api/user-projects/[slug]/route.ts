@@ -143,7 +143,26 @@ export async function PATCH(
     await connectToDatabase();
 
     const body = await request.json();
-    const { file, files, currentTaskIndex, completedTasks, activeFilePath } = body;
+    const {
+      file,
+      files,
+      deleteFilePath,
+      isDirectory,
+      renameFile,
+      currentTaskIndex,
+      completedTasks,
+      activeFilePath,
+    } = body;
+
+    let baseProject = await Project.findOne({
+      $or: [{ slug }, { slug: normalizedSlug }],
+    });
+
+    const coreFilePaths = new Set<string>(
+      (baseProject?.files || fallbackSeed.files || []).map((f: any) =>
+        String(f.path).replace(/^\/+/, "")
+      )
+    );
 
     let userProject = await UserProject.findOne({
       userId: session.userId,
@@ -151,10 +170,6 @@ export async function PATCH(
     });
 
     if (!userProject) {
-      // Find or create base project to get initial files
-      let baseProject = await Project.findOne({
-        $or: [{ slug }, { slug: normalizedSlug }],
-      });
       const initialFiles = (baseProject?.files || fallbackSeed.files || []).map(
         (f: any) => ({
           path: f.path,
@@ -174,7 +189,73 @@ export async function PATCH(
       });
     }
 
-    // Update specific file or entire files array
+    // 1. Guardrail & handle deletion
+    if (typeof deleteFilePath === "string") {
+      const cleanDelete = deleteFilePath.replace(/^\/+/, "");
+      // Check if trying to delete a core file or directory containing core files
+      const isTryingToDeleteCore = isDirectory
+        ? Array.from(coreFilePaths).some(
+            (cp) => cp === cleanDelete || cp.startsWith(`${cleanDelete}/`)
+          )
+        : coreFilePaths.has(cleanDelete);
+
+      if (isTryingToDeleteCore) {
+        return NextResponse.json(
+          { success: false, error: "Core project files and directories cannot be deleted." },
+          { status: 403 }
+        );
+      }
+
+      if (isDirectory) {
+        userProject.files = userProject.files.filter((f: any) => {
+          const fp = f.path.replace(/^\/+/, "");
+          return !fp.startsWith(`${cleanDelete}/`) && fp !== cleanDelete;
+        });
+      } else {
+        userProject.files = userProject.files.filter(
+          (f: any) => f.path.replace(/^\/+/, "") !== cleanDelete
+        );
+      }
+    }
+
+    // 2. Guardrail & handle renaming
+    if (renameFile && typeof renameFile.oldPath === "string" && typeof renameFile.newPath === "string") {
+      const cleanOld = renameFile.oldPath.replace(/^\/+/, "");
+      const cleanNew = renameFile.newPath.replace(/^\/+/, "");
+
+      const isTryingToRenameCore = renameFile.isDirectory
+        ? Array.from(coreFilePaths).some(
+            (cp) => cp === cleanOld || cp.startsWith(`${cleanOld}/`)
+          )
+        : coreFilePaths.has(cleanOld);
+
+      if (isTryingToRenameCore) {
+        return NextResponse.json(
+          { success: false, error: "Core project files and directories cannot be renamed." },
+          { status: 403 }
+        );
+      }
+
+      if (renameFile.isDirectory) {
+        userProject.files.forEach((f: any) => {
+          const fp = f.path.replace(/^\/+/, "");
+          if (fp.startsWith(`${cleanOld}/`)) {
+            f.path = `${cleanNew}/${fp.slice(cleanOld.length + 1)}`;
+          } else if (fp === cleanOld) {
+            f.path = cleanNew;
+          }
+        });
+      } else {
+        const target = userProject.files.find(
+          (f: any) => f.path.replace(/^\/+/, "") === cleanOld
+        );
+        if (target) {
+          target.path = cleanNew;
+        }
+      }
+    }
+
+    // 3. Update specific file or entire files array
     if (file && typeof file.path === "string") {
       const cleanPath = file.path.replace(/^\/+/, "");
       const existingIdx = userProject.files.findIndex(

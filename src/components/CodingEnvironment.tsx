@@ -90,6 +90,7 @@ export default function CodingEnvironment({
 
   // Cloud Save State
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [starterFilePaths, setStarterFilePaths] = useState<string[]>([]);
 
   // Workspace View Mode: "code" | "split" | "preview"
   const [workspaceViewMode, setWorkspaceViewMode] = useState<"code" | "split" | "preview">("code");
@@ -160,6 +161,12 @@ export default function CodingEnvironment({
           files: filesToUse,
         });
 
+        // Track original core starter files for protection
+        const starterPaths = (baseProject?.files || []).map((f: any) =>
+          f.path.replace(/^\/+/, "")
+        );
+        setStarterFilePaths(starterPaths);
+
         if (userWorkspace) {
           if (typeof userWorkspace.currentTaskIndex === "number") {
             setCurrentTaskIndex(userWorkspace.currentTaskIndex);
@@ -181,6 +188,10 @@ export default function CodingEnvironment({
         console.error("Failed to load user workspace:", err);
         if (initialProject) {
           setProject(initialProject);
+          const starterPaths = (initialProject.files || []).map((f: any) =>
+            f.path.replace(/^\/+/, "")
+          );
+          setStarterFilePaths(starterPaths);
           await initializeFiles(initialProject.files || []);
         } else if (isSubscribed) {
           setError(err.message || "Failed to load project data");
@@ -287,14 +298,55 @@ export default function CodingEnvironment({
     [activeFilePath]
   );
 
+  const handleCreateFile = useCallback(
+    async (createdPath: string) => {
+      const cleanPath = createdPath.replace(/^\/+/, "");
+      setProject((prev) => {
+        if (!prev) return prev;
+        const exists = prev.files.some(
+          (f) => f.path.replace(/^\/+/, "") === cleanPath
+        );
+        if (exists) return prev;
+        return {
+          ...prev,
+          files: [
+            ...prev.files,
+            { path: cleanPath, content: "", editable: true, visible: true },
+          ],
+        };
+      });
+
+      try {
+        setSaveStatus("saving");
+        await fetch(`/api/user-projects/${projectIdOrSlug}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            file: { path: cleanPath, content: "" },
+            activeFilePath: cleanPath,
+          }),
+        });
+        setSaveStatus("saved");
+      } catch (err) {
+        console.warn("Failed to persist newly created file:", err);
+        setSaveStatus("error");
+      }
+    },
+    [projectIdOrSlug]
+  );
+
   const handleDeleteFile = useCallback(
-    (deletedPath: string, isDirectory: boolean) => {
+    async (deletedPath: string, isDirectory: boolean) => {
+      const cleanDeleted = deletedPath.replace(/^\/+/, "");
+
+      // 1. Update open tabs
       setOpenTabs((prev) => {
         const next = prev.filter((t) => {
+          const tp = t.path.replace(/^\/+/, "");
           if (isDirectory) {
-            return !t.path.startsWith(`${deletedPath}/`) && t.path !== deletedPath;
+            return !tp.startsWith(`${cleanDeleted}/`) && tp !== cleanDeleted;
           }
-          return t.path !== deletedPath;
+          return tp !== cleanDeleted;
         });
         if (activeFilePath === deletedPath && next.length > 0) {
           setActiveFilePath(next[next.length - 1].path);
@@ -303,20 +355,97 @@ export default function CodingEnvironment({
         }
         return next;
       });
+
+      // 2. Update project files state
+      setProject((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          files: prev.files.filter((f) => {
+            const fp = f.path.replace(/^\/+/, "");
+            if (isDirectory) {
+              return !fp.startsWith(`${cleanDeleted}/`) && fp !== cleanDeleted;
+            }
+            return fp !== cleanDeleted;
+          }),
+        };
+      });
+
+      // 3. Persist deletion to MongoDB
+      try {
+        setSaveStatus("saving");
+        await fetch(`/api/user-projects/${projectIdOrSlug}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            deleteFilePath: cleanDeleted,
+            isDirectory,
+          }),
+        });
+        setSaveStatus("saved");
+      } catch (err) {
+        console.warn("Failed to persist deleted file to MongoDB:", err);
+        setSaveStatus("error");
+      }
     },
-    [activeFilePath]
+    [activeFilePath, projectIdOrSlug]
   );
 
   const handleRenameFile = useCallback(
-    (oldPath: string, newPath: string) => {
+    async (oldPath: string, newPath: string) => {
+      const cleanOld = oldPath.replace(/^\/+/, "");
+      const cleanNew = newPath.replace(/^\/+/, "");
+
+      // 1. Update open tabs
       setOpenTabs((prev) =>
-        prev.map((t) => (t.path === oldPath ? { ...t, path: newPath } : t))
+        prev.map((t) => {
+          const tp = t.path.replace(/^\/+/, "");
+          if (tp === cleanOld) return { ...t, path: cleanNew };
+          if (tp.startsWith(`${cleanOld}/`)) {
+            return { ...t, path: `${cleanNew}/${tp.slice(cleanOld.length + 1)}` };
+          }
+          return t;
+        })
       );
+
       if (activeFilePath === oldPath) {
         setActiveFilePath(newPath);
       }
+
+      // 2. Update project files state
+      setProject((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          files: prev.files.map((f) => {
+            const fp = f.path.replace(/^\/+/, "");
+            if (fp === cleanOld) return { ...f, path: cleanNew };
+            if (fp.startsWith(`${cleanOld}/`)) {
+              return { ...f, path: `${cleanNew}/${fp.slice(cleanOld.length + 1)}` };
+            }
+            return f;
+          }),
+        };
+      });
+
+      // 3. Persist rename to MongoDB
+      try {
+        setSaveStatus("saving");
+        await fetch(`/api/user-projects/${projectIdOrSlug}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            renameFile: { oldPath: cleanOld, newPath: cleanNew },
+            activeFilePath: newPath,
+          }),
+        });
+        setSaveStatus("saved");
+      } catch (err) {
+        console.warn("Failed to persist renamed file to MongoDB:", err);
+        setSaveStatus("error");
+      }
     },
-    [activeFilePath]
+    [activeFilePath, projectIdOrSlug]
   );
 
   const saveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -898,8 +1027,10 @@ export default function CodingEnvironment({
                 onSelectFile={handleSelectFile}
                 onDeleteFile={handleDeleteFile}
                 onRenameFile={handleRenameFile}
+                onCreateFile={handleCreateFile}
                 refreshKey={treeRefreshKey}
                 files={project?.files}
+                starterFilePaths={starterFilePaths}
               />
             </div>
 

@@ -23,6 +23,7 @@ import {
   Pencil,
   AlertTriangle,
   FoldVertical,
+  Lock,
 } from "lucide-react";
 import {
   listDirectory,
@@ -49,9 +50,11 @@ export interface FileTreeProps {
   onSelectFile: (path: string) => void;
   onDeleteFile?: (path: string, isDirectory: boolean) => void;
   onRenameFile?: (oldPath: string, newPath: string) => void;
+  onCreateFile?: (path: string) => void;
   /** Increment this value to force a tree refresh from outside */
   refreshKey?: number;
   files?: any[];
+  starterFilePaths?: string[];
 }
 
 interface ContextMenuState {
@@ -72,6 +75,24 @@ interface RenameState {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
+
+export function isCorePath(
+  path: string,
+  isDirectory: boolean,
+  starterPaths?: Set<string>
+): boolean {
+  if (!starterPaths || starterPaths.size === 0) return false;
+  const clean = path.replace(/^\/+/, "");
+  if (!isDirectory) {
+    return starterPaths.has(clean);
+  }
+  for (const starter of starterPaths) {
+    if (starter === clean || starter.startsWith(`${clean}/`)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 const HIDDEN = new Set(["node_modules", ".git", ".next", ".cache", ".turbo"]);
 
@@ -348,6 +369,7 @@ interface TreeNodeRowProps {
   onCancelCreate: () => void;
   onFinishRename: (newName: string) => void;
   onCancelRename: () => void;
+  starterPathsSet: Set<string>;
 }
 
 function TreeNodeRow({
@@ -367,10 +389,12 @@ function TreeNodeRow({
   onCancelCreate,
   onFinishRename,
   onCancelRename,
+  starterPathsSet,
 }: TreeNodeRowProps) {
   const isOpen = expanded.has(node.path);
   const isActive = activePath === node.path;
   const isRenaming = renamePrompt?.path === node.path;
+  const isCore = isCorePath(node.path, node.isDirectory, starterPathsSet);
 
   if (isRenaming) {
     return (
@@ -430,20 +454,31 @@ function TreeNodeRow({
             >
               <FolderPlus className="h-3.5 w-3.5" />
             </button>
-            <button
-              onClick={() => onStartRename(node)}
-              className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-amber-300 transition-colors"
-              title="Rename folder"
-            >
-              <Pencil className="h-3 w-3" />
-            </button>
-            <button
-              onClick={() => onStartDelete(node)}
-              className="p-1 rounded hover:bg-rose-900/50 text-slate-400 hover:text-rose-300 transition-colors"
-              title="Delete folder"
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
+            {isCore ? (
+              <span
+                className="p-1 text-slate-600 cursor-not-allowed"
+                title="Core project directory cannot be renamed or deleted"
+              >
+                <Lock className="h-3 w-3" />
+              </span>
+            ) : (
+              <>
+                <button
+                  onClick={() => onStartRename(node)}
+                  className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                  title="Rename folder"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={() => onStartDelete(node)}
+                  className="p-1 rounded hover:bg-rose-900/50 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
+                  title="Delete folder"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -477,6 +512,7 @@ function TreeNodeRow({
                 onCancelCreate={onCancelCreate}
                 onFinishRename={onFinishRename}
                 onCancelRename={onCancelRename}
+                starterPathsSet={starterPathsSet}
               />
             ))}
           </div>
@@ -506,26 +542,41 @@ function TreeNodeRow({
         <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0 ml-1.5 shadow-[0_0_8px_rgba(251,191,36,0.8)]" />
       )}
 
-      {/* Action buttons on hover */}
-      <div
-        className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          onClick={() => onStartRename(node)}
-          className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-amber-300 transition-colors"
-          title="Rename file"
+      {isCore ? (
+        <div
+          className="flex items-center gap-1 opacity-50 group-hover:opacity-90 transition-opacity ml-auto"
+          onClick={(e) => e.stopPropagation()}
         >
-          <Pencil className="h-3 w-3" />
-        </button>
-        <button
-          onClick={() => onStartDelete(node)}
-          className="p-1 rounded hover:bg-rose-900/50 text-slate-400 hover:text-rose-300 transition-colors"
-          title="Delete file"
+          <span
+            className="flex items-center gap-1 text-[9px] font-sans px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700/50 cursor-default"
+            title="Core project file (cannot be deleted or renamed)"
+          >
+            <Lock className="h-2.5 w-2.5 text-slate-400" />
+            <span className="text-[9px] uppercase tracking-wider font-semibold">Core</span>
+          </span>
+        </div>
+      ) : (
+        /* Action buttons on hover for custom user files */
+        <div
+          className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
+          onClick={(e) => e.stopPropagation()}
         >
-          <Trash2 className="h-3 w-3" />
-        </button>
-      </div>
+          <button
+            onClick={() => onStartRename(node)}
+            className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+            title="Rename file"
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+          <button
+            onClick={() => onStartDelete(node)}
+            className="p-1 rounded hover:bg-rose-900/50 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
+            title="Delete file"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -537,12 +588,19 @@ export default function FileTree({
   onSelectFile,
   onDeleteFile,
   onRenameFile,
+  onCreateFile,
   refreshKey = 0,
   files,
+  starterFilePaths,
 }: FileTreeProps) {
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+
+  // Compute starter paths set for fast lookups
+  const starterPathsSet = React.useMemo(() => {
+    return new Set((starterFilePaths || []).map((p) => p.replace(/^\/+/, "")));
+  }, [starterFilePaths]);
 
   // Creation & renaming state
   const [createPrompt, setCreatePrompt] = useState<CreatePromptState | null>(null);
@@ -645,6 +703,9 @@ export default function FileTree({
         await writeProjectFile(fullPath, "");
         setCreatePrompt(null);
         await loadTree();
+        if (onCreateFile) {
+          onCreateFile(fullPath);
+        }
         onSelectFile(fullPath);
       } else {
         await createDirectory(fullPath);
@@ -705,6 +766,12 @@ export default function FileTree({
     if (!deleteTarget) return;
     const target = deleteTarget;
     setDeleteTarget(null);
+
+    // Safeguard: do not delete core starter files
+    if (isCorePath(target.path, target.isDirectory, starterPathsSet)) {
+      console.warn("Cannot delete core project file:", target.path);
+      return;
+    }
 
     try {
       await deleteEntry(target.path);
@@ -823,6 +890,7 @@ export default function FileTree({
               onCancelCreate={() => setCreatePrompt(null)}
               onFinishRename={handleFinishRename}
               onCancelRename={() => setRenamePrompt(null)}
+              starterPathsSet={starterPathsSet}
             />
           ))
         )}
@@ -873,21 +941,34 @@ export default function FileTree({
 
           {contextMenu.node && (
             <>
-              <button
-                onClick={() => handleStartRename(contextMenu.node!)}
-                className="w-full text-left px-3 py-1.5 hover:bg-amber-600/20 hover:text-amber-200 flex items-center gap-2 transition-colors"
-              >
-                <Pencil className="h-3.5 w-3.5 text-amber-400" />
-                <span>Rename</span>
-              </button>
-              <div className="my-1 border-t border-slate-800" />
-              <button
-                onClick={() => handleStartDelete(contextMenu.node!)}
-                className="w-full text-left px-3 py-1.5 hover:bg-rose-950/60 text-rose-400 hover:text-rose-200 flex items-center gap-2 transition-colors"
-              >
-                <Trash2 className="h-3.5 w-3.5 text-rose-400" />
-                <span>Delete</span>
-              </button>
+              {isCorePath(
+                contextMenu.node.path,
+                contextMenu.node.isDirectory,
+                starterPathsSet
+              ) ? (
+                <div className="px-3 py-1.5 text-[11px] text-slate-500 flex items-center gap-2 cursor-not-allowed bg-slate-800/30">
+                  <Lock className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Core file (cannot delete/rename)</span>
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={() => handleStartRename(contextMenu.node!)}
+                    className="w-full text-left px-3 py-1.5 hover:bg-amber-600/20 hover:text-amber-200 flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <Pencil className="h-3.5 w-3.5 text-amber-400" />
+                    <span>Rename</span>
+                  </button>
+                  <div className="my-1 border-t border-slate-800" />
+                  <button
+                    onClick={() => handleStartDelete(contextMenu.node!)}
+                    className="w-full text-left px-3 py-1.5 hover:bg-rose-950/60 text-rose-400 hover:text-rose-200 flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-rose-400" />
+                    <span>Delete</span>
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
