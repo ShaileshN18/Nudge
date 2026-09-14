@@ -104,7 +104,7 @@ Ask me for code reviews, architectural explanations, or debugging help whenever 
           history: messages.map((m) => ({ role: m.role, content: m.content })),
           task: currentTask,
           activeFile: {
-            path: activeFilePath || "Post.jsx",
+            path: activeFilePath || "",
             content: activeFileContent || "",
           },
         }),

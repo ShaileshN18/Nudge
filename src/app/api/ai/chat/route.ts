@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 
 interface ChatMessage {
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "model";
   content: string;
 }
 
@@ -24,6 +24,144 @@ interface ChatRequestBody {
   };
 }
 
+function buildSystemPrompt(
+  task?: ChatRequestBody["task"],
+  activeFile?: ChatRequestBody["activeFile"]
+): string {
+  const taskSection = task?.title
+    ? `Current Workspace Task:
+- Step/Order: ${task.order || 1}
+- Title: ${task.title}
+- Description: ${task.description || "Complete the task according to specifications."}
+- Goal: ${task.goal || "Follow standard engineering patterns and satisfy test criteria."}
+- Target Files: ${task.targetFiles?.join(", ") || "Project workspace files"}
+- Evaluation Criteria: ${task.evaluationCriteria?.join("; ") || "Verify functionality and clean architecture."}`
+    : `Current Workspace: General full-stack software development environment.`;
+
+  const fileSection = activeFile?.path
+    ? `Active File in Editor: \`${activeFile.path}\`
+Content:
+\`\`\`
+${activeFile.content || "// (Empty file)"}
+\`\`\``
+    : "No active file currently open.";
+
+  return `You are "AI Mentor" (Aria), an expert software engineering mentor and pair programmer embedded inside the user's interactive IDE.
+
+${taskSection}
+
+${fileSection}
+
+Instructions for your responses:
+1. Provide accurate, educational, and constructive guidance.
+2. If the user asks for code review, debugging help, or why tests might fail, inspect their active file content and give specific line-by-line observations, potential pitfalls, and code solutions.
+3. If they ask conceptual or architectural questions, explain clearly with concise code examples.
+4. Format all answers neatly with markdown headers (###), bullet points, and syntax-highlighted code blocks.
+5. Keep your tone encouraging, professional, and directly actionable.`;
+}
+
+function buildGeminiContents(
+  history: ChatMessage[],
+  newMessage: string
+): Array<{ role: "user" | "model"; parts: [{ text: string }] }> {
+  const turns: Array<{ role: "user" | "model"; text: string }> = [];
+
+  // Convert previous history turns
+  for (const msg of history.slice(-10)) {
+    const role: "user" | "model" =
+      msg.role === "assistant" || msg.role === "model" ? "model" : "user";
+    const text = (msg.content || "").trim();
+    if (!text) continue;
+
+    // Merge consecutive turns with the same role
+    if (turns.length > 0 && turns[turns.length - 1].role === role) {
+      turns[turns.length - 1].text += "\n\n" + text;
+    } else {
+      turns.push({ role, text });
+    }
+  }
+
+  // Ensure conversation starts with 'user'
+  if (turns.length > 0 && turns[0].role === "model") {
+    turns.unshift({
+      role: "user",
+      text: "Hello, I am working on this project task and need your mentorship.",
+    });
+  }
+
+  // Append new user message
+  if (turns.length > 0 && turns[turns.length - 1].role === "user") {
+    turns[turns.length - 1].text += "\n\n" + newMessage.trim();
+  } else {
+    turns.push({ role: "user", text: newMessage.trim() });
+  }
+
+  return turns.map((t) => ({
+    role: t.role,
+    parts: [{ text: t.text }],
+  }));
+}
+
+async function callGemini(
+  apiKey: string,
+  systemPrompt: string,
+  contents: Array<{ role: "user" | "model"; parts: [{ text: string }] }>
+): Promise<{ reply: string; model: string }> {
+  const modelsToTry = [
+    process.env.GEMINI_MODEL,
+    "gemini-3.6-flash",
+    "gemini-flash-latest",
+    "gemini-2.5-flash",
+  ].filter(Boolean) as string[];
+
+  const uniqueModels = Array.from(new Set(modelsToTry));
+  let lastError: any = null;
+
+  for (const model of uniqueModels) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: {
+              parts: [{ text: systemPrompt }],
+            },
+            contents,
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 1500,
+            },
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (reply) {
+          return { reply, model };
+        }
+      }
+
+      console.warn(
+        `[AI Mentor] Model ${model} returned ${response.status}:`,
+        data?.error?.message || data
+      );
+      lastError = new Error(
+        data?.error?.message || `Gemini API returned status ${response.status}`
+      );
+    } catch (err: any) {
+      console.warn(`[AI Mentor] Model ${model} request error:`, err.message);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error("All Gemini models failed to respond");
+}
+
 export async function POST(request: Request) {
   try {
     const body: ChatRequestBody = await request.json();
@@ -40,69 +178,32 @@ export async function POST(request: Request) {
 
     if (geminiApiKey) {
       try {
-        const systemPrompt = `You are "AI Mentor", an expert software engineering mentor built into a modern coding environment.
-The user is building a production-grade authentication microservice in Node.js and Express.
-Current Task Information:
-- Order/Step: ${task?.order || 1}
-- Title: ${task?.title || "Define User Model & Password Hashing"}
-- Description: ${task?.description || "Implement secure password hashing in the User model using salt rounds."}
-- Goal: ${task?.goal || "Hash passwords securely using cryptographic salt before persisting user records."}
-- Files they work with: ${task?.targetFiles?.join(", ") || "src/models/User.js"}
-- Evaluation Criteria: ${task?.evaluationCriteria?.join("; ") || "Validate salt, password encryption, comparePassword"}
+        const systemPrompt = buildSystemPrompt(task, activeFile);
+        const contents = buildGeminiContents(history, message);
 
-Active File Currently Open in Editor:
-- Path: ${activeFile?.path || "src/models/User.js"}
-- Content:
-\`\`\`
-${activeFile?.content || "// No file content"}
-\`\`\`
-
-Guidelines:
-1. Provide constructive, educational, and professional engineering guidance.
-2. Focus on security best practices, clean code, error handling, and robust architecture.
-3. If the user asks for code review or debugging help, analyze their active file and explain logical bugs, missing checks, or edge cases.
-4. Keep answers concise, formatted with markdown, and highlight relevant code lines.`;
-
-        const contents = [
-          {
-            role: "user",
-            parts: [{ text: systemPrompt }],
-          },
-          ...history.slice(-6).map((msg) => ({
-            role: msg.role === "assistant" ? "model" : "user",
-            parts: [{ text: msg.content }],
-          })),
-          {
-            role: "user",
-            parts: [{ text: message }],
-          },
-        ];
-
-        const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents }),
-          }
+        const { reply, model } = await callGemini(
+          geminiApiKey,
+          systemPrompt,
+          contents
         );
 
-        if (geminiRes.ok) {
-          const geminiData = await geminiRes.json();
-          const reply =
-            geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (reply) {
-            return NextResponse.json({ reply });
-          }
-        }
-      } catch (geminiErr) {
-        console.warn("Gemini API call failed, falling back to built-in mentor:", geminiErr);
+        return NextResponse.json({ reply, model });
+      } catch (geminiErr: any) {
+        console.error(
+          "[AI Mentor] Gemini API failed, using fallback:",
+          geminiErr.message
+        );
       }
+    } else {
+      console.warn("[AI Mentor] GEMINI_API_KEY is not set in environment");
     }
 
-    // Built-in intelligent mentor response generator (works without external keys)
+    // Emergency offline fallback only if Gemini API is unreachable or key is missing
     const reply = generateMentorResponse(message, task, activeFile);
-    return NextResponse.json({ reply });
+    return NextResponse.json({
+      reply,
+      isFallback: true,
+    });
   } catch (err: any) {
     console.error("AI Chat route error:", err);
     return NextResponse.json(
