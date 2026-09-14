@@ -51,6 +51,7 @@ body {
 }
 
 /* Monaco Editor "Need a Nudge" Line Highlight & Red Gutter Dot */
+/* monaco overrides */
 .monaco-editor .monaco-nudge-line-highlight {
   background: linear-gradient(90deg, rgba(225, 29, 72, 0.22) 0%, rgba(185, 28, 28, 0.08) 100%) !important;
   border-left: 3px solid #ef4444 !important;
