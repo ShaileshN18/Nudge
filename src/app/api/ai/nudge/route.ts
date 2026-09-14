@@ -95,6 +95,62 @@ STRICT HINT RULES:
 }`;
 
     const model = "gemini-3.5-flash";
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.2,
+            maxOutputTokens: 300,
+          },
+        }),
+      }
+    );
+
+    if (!geminiRes.ok) {
+      const errorData = await geminiRes.json().catch(() => null);
+      const errorMessage =
+        errorData?.error?.message || geminiRes.statusText || "Failed to generate hint from Gemini API";
+      const statusCode = geminiRes.status;
+
+      if (statusCode === 429) {
+        return NextResponse.json(
+          {
+            error: "Gemini API rate limit exceeded (quota reached). Please wait a moment before trying again.",
+            code: "RATE_LIMITED",
+            details: errorMessage,
+          },
+          { status: 429 }
+        );
+      }
+
+      if (statusCode === 503) {
+        return NextResponse.json(
+          {
+            error: "Gemini model is currently experiencing high demand. Please try again shortly.",
+            code: "SERVICE_UNAVAILABLE",
+            details: errorMessage,
+          },
+          { status: 503 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          error: errorMessage,
+          code: errorData?.error?.status || "AI_ERROR",
+        },
+        { status: statusCode >= 400 && statusCode < 600 ? statusCode : 500 }
+      );
+    }
+
+    const geminiData = await geminiRes.json();
+    const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+
         return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: "error" }, { status: 500 });
