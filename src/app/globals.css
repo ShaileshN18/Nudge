@@ -62,4 +62,20 @@ crollbar-thumb:hover {
 }
 
 @keyframes nudgeLinePulse {
-  0%, 100% {
+  0%, 100% {
+    background: linear-gradient(90deg, rgba(225, 29, 72, 0.22) 0%, rgba(185, 28, 28, 0.08) 100%);
+  }
+  50% {
+    background: linear-gradient(90deg, rgba(225, 29, 72, 0.32) 0%, rgba(185, 28, 28, 0.14) 100%);
+  }
+}
+
+.monaco-editor .monaco-nudge-gutter-indicator {
+  background: #ef4444 !important;
+  width: 3px !important;
+  margin-left: 2px !important;
+  border-radius: 2px !important;
+}
+
+.monaco-editor .monaco-nudge-glyph-margin {
+  background-color: transparent !important
