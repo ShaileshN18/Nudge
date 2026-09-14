@@ -21,3 +21,13 @@ export interface ProjectContextInput {
   description?: string;
   track?: string;
 }
+
+export interface AIContext {
+  taskOrder: number;
+  taskTitle: string;
+  goal: string;
+  description: string;
+  targetFiles: string[];
+  evaluationCriteria: string[];
+  files: TargetFileContent[];
+}
