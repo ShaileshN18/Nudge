@@ -187,8 +187,19 @@ STRICT EVALUATION RULES:
       );
     }
 
-        return NextResponse.json({ success: true, evaluation: parsedResult });
+    if (Array.isArray(parsedResult.criteriaStatus)) {
+      parsedResult.passed = parsedResult.criteriaStatus.every((c: any) => c.passed === true);
+    }
+
+    return NextResponse.json({
+      success: true,
+      evaluation: parsedResult,
+    });
   } catch (err: any) {
-    return NextResponse.json({ error: "error" }, { status: 500 });
+    console.error("AI Evaluation error:", err);
+    return NextResponse.json(
+      { error: err?.message || "Internal server error during evaluation" },
+      { status: 500 }
+    );
   }
 }
