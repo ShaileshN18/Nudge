@@ -169,8 +169,36 @@ STRICT HINT RULES:
       );
     }
 
-        return NextResponse.json({ success: true });
+    const targetFile =
+      parsedResult.targetFile && typeof parsedResult.targetFile === "string" && parsedResult.targetFile.trim()
+        ? parsedResult.targetFile.trim()
+        : activeTarget?.path || task.targetFiles?.[0] || "";
+
+    const startLine =
+      typeof parsedResult.startLine === "number" && !isNaN(parsedResult.startLine)
+        ? Math.max(1, Math.floor(parsedResult.startLine))
+        : 1;
+
+    const endLine =
+      typeof parsedResult.endLine === "number" && !isNaN(parsedResult.endLine)
+        ? Math.max(startLine, Math.floor(parsedResult.endLine))
+        : startLine;
+
+    return NextResponse.json({
+      success: true,
+      nudge: {
+        hint: parsedResult.hint || "Inspect this section to verify the implementation logic.",
+        targetFile,
+        startLine,
+        endLine,
+        concept: parsedResult.concept || "Code structure",
+      },
+    });
   } catch (err: any) {
-    return NextResponse.json({ error: "error" }, { status: 500 });
+    console.error("AI Nudge error:", err);
+    return NextResponse.json(
+      { error: err?.message || "Internal server error during nudge generation" },
+      { status: 500 }
+    );
   }
 }
