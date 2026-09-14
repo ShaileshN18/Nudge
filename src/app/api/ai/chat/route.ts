@@ -22,11 +22,28 @@ interface ChatRequestBody {
     path: string;
     content: string;
   };
+  projectFiles?: Array<{ path: string; summary?: string }>;
+  terminalLogs?: string[];
+  evalResults?: {
+    passed: boolean;
+    criteriaStatus?: Array<{ title: string; passed: boolean }>;
+  } | null;
+}
+
+function formatNumberedLines(content: string): string {
+  if (!content) return "// (Empty file)";
+  return content
+    .split("\n")
+    .map((line, idx) => `${String(idx + 1).padStart(4, " ")} | ${line}`)
+    .join("\n");
 }
 
 function buildSystemPrompt(
   task?: ChatRequestBody["task"],
-  activeFile?: ChatRequestBody["activeFile"]
+  activeFile?: ChatRequestBody["activeFile"],
+  terminalLogs?: string[],
+  evalResults?: ChatRequestBody["evalResults"],
+  projectFiles?: ChatRequestBody["projectFiles"]
 ): string {
   const taskSection = task?.title
     ? `Current Workspace Task:
@@ -39,22 +56,47 @@ function buildSystemPrompt(
     : `Current Workspace: General full-stack software development environment.`;
 
   const fileSection = activeFile?.path
-    ? `Active File in Editor: \`${activeFile.path}\`
-Content:
+    ? `Active File in Editor: \`${activeFile.path}\` (Numbered lines matching the editor):
 \`\`\`
-${activeFile.content || "// (Empty file)"}
+${formatNumberedLines(activeFile.content || "")}
 \`\`\``
     : "No active file currently open.";
+
+  let problemSection = "";
+  if (terminalLogs && terminalLogs.length > 0) {
+    const recentLogs = terminalLogs.slice(-25).join("\n");
+    problemSection += `\n\nRecent Terminal & Test Execution Output:\n\`\`\`\n${recentLogs}\n\`\`\``;
+  }
+
+  if (evalResults) {
+    problemSection += `\n\nAutomated Test & Evaluation Criteria Status:
+- Overall status: ${evalResults.passed ? "ALL CRITERIA PASSED" : "CRITERIA FAILED"}
+${(evalResults.criteriaStatus || [])
+  .map((c) => `  * [${c.passed ? "PASSED" : "FAILED"}] ${c.title}`)
+  .join("\n")}`;
+  }
+
+  let filesSection = "";
+  if (projectFiles && projectFiles.length > 0) {
+    filesSection = `\n\nProject Workspace Files:\n${projectFiles.map((f) => `- ${f.path}`).join("\n")}`;
+  }
 
   return `You are "AI Mentor" (Aria), an expert software engineering mentor and pair programmer embedded inside the user's interactive IDE.
 
 ${taskSection}
-
+${filesSection}
 ${fileSection}
+${problemSection}
 
 Instructions for your responses:
 1. Provide accurate, educational, and constructive guidance.
-2. If the user asks for code review, debugging help, or why tests might fail, inspect their active file content and give specific line-by-line observations, potential pitfalls, and code solutions.
+2. If the user asks what they are doing wrong, for code review, debugging help, or why tests/terminal fail:
+   - Carefully inspect their active file lines and the terminal logs / evaluation criteria above.
+   - Point out the exact line(s) causing the issue.
+   - ALWAYS include a highlight tag on its own line so the editor can illuminate it:
+     :::highlight{file="${activeFile?.path || "src/models/User.js"}" line=<startLineNumber> endLine=<endLineNumber>}:::
+     (e.g., :::highlight{file="${activeFile?.path || "src/models/User.js"}" line=14 endLine=18}:::)
+   - Clearly explain why that code is failing or what is missing, and provide the fixed code replacement.
 3. If they ask conceptual or architectural questions, explain clearly with concise code examples.
 4. Format all answers neatly with markdown headers (###), bullet points, and syntax-highlighted code blocks.
 5. Keep your tone encouraging, professional, and directly actionable.`;
@@ -119,11 +161,13 @@ async function callGemini(
 
   for (const model of uniqueModels) {
     try {
+      console.log(`[AI Mentor] Querying Gemini model: ${model}`);
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(15000),
           body: JSON.stringify({
             system_instruction: {
               parts: [{ text: systemPrompt }],
@@ -142,6 +186,7 @@ async function callGemini(
       if (response.ok) {
         const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (reply) {
+          console.log(`[AI Mentor] Model ${model} responded successfully (${reply.length} chars)`);
           return { reply, model };
         }
       }
@@ -165,7 +210,15 @@ async function callGemini(
 export async function POST(request: Request) {
   try {
     const body: ChatRequestBody = await request.json();
-    const { message, history = [], task, activeFile } = body;
+    const {
+      message,
+      history = [],
+      task,
+      activeFile,
+      terminalLogs,
+      evalResults,
+      projectFiles,
+    } = body;
 
     if (!message || typeof message !== "string") {
       return NextResponse.json(
@@ -178,7 +231,13 @@ export async function POST(request: Request) {
 
     if (geminiApiKey) {
       try {
-        const systemPrompt = buildSystemPrompt(task, activeFile);
+        const systemPrompt = buildSystemPrompt(
+          task,
+          activeFile,
+          terminalLogs,
+          evalResults,
+          projectFiles
+        );
         const contents = buildGeminiContents(history, message);
 
         const { reply, model } = await callGemini(

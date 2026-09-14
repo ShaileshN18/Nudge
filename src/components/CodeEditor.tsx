@@ -36,6 +36,13 @@ interface CodeEditorProps {
   initialFiles?: Array<{ path: string; content: string }>;
   /** Optional new tab trigger */
   onNewTab?: () => void;
+  /** Optional line highlight target requested by AI or problems */
+  highlightTarget?: {
+    path: string;
+    line: number;
+    endLine?: number;
+    timestamp: number;
+  } | null;
 }
 
 // ─── Language Detection ─────────────────────────────────────────────
@@ -120,6 +127,7 @@ export default function CodeEditor({
   onTriggerAriaNudge,
   initialFiles,
   onNewTab,
+  highlightTarget,
 }: CodeEditorProps) {
   const contentCache = useRef<
     Map<string, { content: string; savedContent: string }>
@@ -131,6 +139,8 @@ export default function CodeEditor({
   const [savedFlash, setSavedFlash] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const editorRef = useRef<any>(null);
+  const monacoRef = useRef<any>(null);
+  const decorationsRef = useRef<string[]>([]);
 
   // ── Load file from WebContainer or cache ──────────────────────────
 
@@ -227,6 +237,7 @@ export default function CodeEditor({
   const handleEditorMount: OnMount = useCallback(
     (editor, monaco) => {
       editorRef.current = editor;
+      monacoRef.current = monaco;
 
       editor.addAction({
         id: "nudge-save-file",
@@ -239,6 +250,57 @@ export default function CodeEditor({
     },
     [saveFile]
   );
+
+  // ── Highlight Lines Triggered by AI Mentor / Problems ──────────────
+  useEffect(() => {
+    if (!highlightTarget || !editorRef.current || !monacoRef.current) return;
+
+    const cleanTarget = (highlightTarget.path || "").replace(/^\/+/, "");
+    const cleanActive = (activePath || "").replace(/^\/+/, "");
+
+    // If highlight specifies a path and it's not the active file, do not decorate wrong file
+    if (cleanTarget && cleanTarget !== cleanActive) return;
+
+    const line = Math.max(1, highlightTarget.line);
+    const endLine = Math.max(line, highlightTarget.endLine || line);
+
+    try {
+      editorRef.current.revealLineInCenter(line);
+      editorRef.current.setPosition({ lineNumber: line, column: 1 });
+
+      const newDecorations = [
+        {
+          range: new monacoRef.current.Range(line, 1, endLine, 1),
+          options: {
+            isWholeLine: true,
+            className: "bg-rose-500/25 border-l-4 border-rose-500",
+            overviewRuler: {
+              color: "#f43f5e",
+              position: monacoRef.current.editor.OverviewRulerLane.Full,
+            },
+          },
+        },
+      ];
+
+      decorationsRef.current = editorRef.current.deltaDecorations(
+        decorationsRef.current,
+        newDecorations
+      );
+
+      const timer = setTimeout(() => {
+        if (editorRef.current) {
+          decorationsRef.current = editorRef.current.deltaDecorations(
+            decorationsRef.current,
+            []
+          );
+        }
+      }, 7000);
+
+      return () => clearTimeout(timer);
+    } catch (hlErr) {
+      console.warn("Monaco line highlight error:", hlErr);
+    }
+  }, [highlightTarget, activePath]);
 
   function isTabDirty(path: string): boolean {
     const cached = contentCache.current.get(path);

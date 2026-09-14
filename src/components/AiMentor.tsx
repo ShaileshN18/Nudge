@@ -35,6 +35,13 @@ interface AiMentorProps {
   activeFileContent?: string;
   externalPrompt?: string | null;
   onClearExternalPrompt?: () => void;
+  terminalLogs?: string[];
+  evalResults?: {
+    passed: boolean;
+    criteriaStatus?: Array<{ title: string; passed: boolean }>;
+  } | null;
+  projectFiles?: Array<{ path: string; summary?: string }>;
+  onHighlightInEditor?: (path: string, line: number, endLine?: number) => void;
 }
 
 export default function AiMentor({
@@ -43,6 +50,10 @@ export default function AiMentor({
   activeFileContent,
   externalPrompt,
   onClearExternalPrompt,
+  terminalLogs,
+  evalResults,
+  projectFiles,
+  onHighlightInEditor,
 }: AiMentorProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -107,6 +118,9 @@ Ask me for code reviews, architectural explanations, or debugging help whenever 
             path: activeFilePath || "",
             content: activeFileContent || "",
           },
+          terminalLogs: terminalLogs || [],
+          evalResults: evalResults || null,
+          projectFiles: (projectFiles || []).map((f) => ({ path: f.path })),
         }),
       });
 
@@ -167,10 +181,26 @@ Ready to assist with **Task ${currentTask?.order || 1}: ${
   };
 
   const quickPrompts = [
-    { label: "Review active file", prompt: "Please review my active file and identify any syntax or logical issues", icon: FileCode },
-    { label: "Explain requirements", prompt: "Can you explain the requirements and expected data flow for this task?", icon: HelpCircle },
-    { label: "Why is code failing?", prompt: "Why might my tests or route handlers fail?", icon: Bug },
-    { label: "Security best practices", prompt: "What are the security best practices for JWT tokens and password salts?", icon: Sparkles },
+    {
+      label: "🐞 What am I doing wrong?",
+      prompt: "Can you inspect my active file, test results, and terminal logs to tell me what I am doing wrong, why tests are failing, and highlight the bugs in my code?",
+      icon: Bug,
+    },
+    {
+      label: "🔍 Review active file",
+      prompt: "Please review my active file, identify any syntax or logical issues, and highlight lines that need fixing",
+      icon: FileCode,
+    },
+    {
+      label: "📋 Explain requirements",
+      prompt: "Can you explain the requirements and expected data flow for this task?",
+      icon: HelpCircle,
+    },
+    {
+      label: "🛡️ Security best practices",
+      prompt: "What are the security best practices for JWT tokens and password salts?",
+      icon: Sparkles,
+    },
   ];
 
   return (
@@ -247,7 +277,7 @@ Ready to assist with **Task ${currentTask?.order || 1}: ${
 
                 {/* Simple Markdown Parser / Renderer */}
                 <div className="prose prose-invert prose-xs max-w-none space-y-2">
-                  {renderMarkdownContent(msg.content)}
+                  {renderMarkdownContent(msg.content, onHighlightInEditor)}
                 </div>
               </div>
             </div>
@@ -320,7 +350,10 @@ Ready to assist with **Task ${currentTask?.order || 1}: ${
 }
 
 // ── Simple Markdown Renderer for clean formatted responses ──
-function renderMarkdownContent(content: string) {
+function renderMarkdownContent(
+  content: string,
+  onHighlightInEditor?: (path: string, line: number, endLine?: number) => void
+) {
   const parts = content.split(/(```[\s\S]*?```)/g);
 
   return parts.map((part, index) => {
@@ -352,6 +385,53 @@ function renderMarkdownContent(content: string) {
       <div key={index} className="space-y-1.5">
         {lines.map((line, lIdx) => {
           if (!line.trim()) return null;
+
+          // Check for :::highlight{file="..." line=... endLine=...}:::
+          const hlMatch = line
+            .trim()
+            .match(/:::highlight\{file="([^"]+)"\s+line=(\d+)(?:\s+endLine=(\d+))?\}:::/);
+
+          if (hlMatch) {
+            const file = hlMatch[1];
+            const startLine = parseInt(hlMatch[2], 10);
+            const endLine = hlMatch[3] ? parseInt(hlMatch[3], 10) : startLine;
+
+            return (
+              <div
+                key={lIdx}
+                className="my-2.5 p-3 rounded-xl bg-gradient-to-r from-rose-950/60 via-slate-900/90 to-[#131929] border border-rose-500/40 flex items-center justify-between gap-3 shadow-lg shadow-rose-950/30"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="h-7 w-7 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
+                    <Bug className="h-4 w-4 animate-pulse" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-rose-300">
+                        Bug Identified
+                      </span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-200 border border-rose-500/30">
+                        Line {startLine}
+                        {endLine && endLine !== startLine ? `–${endLine}` : ""}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-mono truncate">
+                      {file}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => onHighlightInEditor?.(file, startLine, endLine)}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-xs font-semibold shadow-md shadow-rose-600/30 transition-all cursor-pointer shrink-0"
+                  title="Jump to line and highlight in code editor"
+                >
+                  <span>Highlight in Code</span>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            );
+          }
 
           if (line.startsWith("### ")) {
             return (

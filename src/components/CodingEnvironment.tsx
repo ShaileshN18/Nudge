@@ -131,8 +131,14 @@ export default function CodingEnvironment({
     }
   }, [panelExpanded]);
 
-  // AI Mentor state
+  // AI Mentor state & Line Highlighting
   const [externalAiPrompt, setExternalAiPrompt] = useState<string | null>(null);
+  const [highlightTarget, setHighlightTarget] = useState<{
+    path: string;
+    line: number;
+    endLine?: number;
+    timestamp: number;
+  } | null>(null);
 
   // ── Load user workspace & project data ──────────────────────────────
   useEffect(() => {
@@ -296,6 +302,26 @@ export default function CodingEnvironment({
       });
     },
     [activeFilePath]
+  );
+
+  const handleHighlightInEditor = useCallback(
+    (filePath: string, line: number, endLine?: number) => {
+      const cleanPath = filePath.replace(/^\/+/, "");
+      const matchedFile = project?.files?.find(
+        (f) => f.path.replace(/^\/+/, "") === cleanPath
+      );
+      const targetPath = matchedFile ? matchedFile.path : cleanPath;
+
+      handleSelectFile(targetPath);
+
+      setHighlightTarget({
+        path: targetPath,
+        line,
+        endLine,
+        timestamp: Date.now(),
+      });
+    },
+    [project?.files, handleSelectFile]
   );
 
   const handleCreateFile = useCallback(
@@ -1143,6 +1169,7 @@ export default function CodingEnvironment({
                             onContentChange={handleContentChange}
                             onTriggerAriaNudge={handleAriaPrompt}
                             initialFiles={project?.files}
+                            highlightTarget={highlightTarget}
                           />
                         </ResizablePanel>
 
@@ -1176,6 +1203,7 @@ export default function CodingEnvironment({
                         onContentChange={handleContentChange}
                         onTriggerAriaNudge={handleAriaPrompt}
                         initialFiles={project?.files}
+                        highlightTarget={highlightTarget}
                       />
                     )}
                   </ResizablePanel>
@@ -1494,6 +1522,10 @@ export default function CodingEnvironment({
               activeFileContent={activeFileContent}
               externalPrompt={externalAiPrompt}
               onClearExternalPrompt={() => setExternalAiPrompt(null)}
+              terminalLogs={terminalLogs}
+              evalResults={evalResults}
+              projectFiles={project?.files}
+              onHighlightInEditor={handleHighlightInEditor}
             />
           </ResizablePanel>
         </ResizablePanelGroup>
