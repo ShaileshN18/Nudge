@@ -53,6 +53,34 @@ export async function POST(request: Request) {
     }
 
     // Pre-check: Ensure target files contain actual code beyond comments
+    const hasActualCode = files.some((f) => {
+      const codeOnly = (f.content || "").replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "").trim();
+      return codeOnly.length > 20;
+    });
+
+    if (!hasActualCode) {
+      return NextResponse.json({
+        success: true,
+        evaluation: {
+          passed: false,
+          overallFeedback: "No code implementation found in the target files. Please write your code before running evaluation.",
+          criteriaStatus: (task.evaluationCriteria || []).map((c) => ({
+            title: c,
+            passed: false,
+            feedback: "Target file is empty or contains no code.",
+          })),
+        },
+      });
+    }
+
+    const formattedFilesText = files
+      .map(
+        (f) => `--- FILE: ${f.path} ---
+${cleanFileContent(f.content, 350)}
+`
+      )
+      .join("\n\n");
+
         return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: "error" }, { status: 500 });
