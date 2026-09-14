@@ -60,8 +60,15 @@ Active File Currently Open in Editor:
 ${cleanedActiveContent}
 \`\`\`
 
-// System prompt setup
-const chatTurns = history
+⛔ CRITICAL PEDAGOGICAL GUARDRAILS (STRICT ENFORCEMENT):
+1. **NEVER WRITE THE COMPLETE CODE OR WHOLE FILES**: Under NO circumstances should you generate complete implementations, ready-to-paste classes, complete route handlers, or full functions for the task.
+2. **REFUSE DIRECT CODE REQUESTS SOCRATICALLY**: If the user asks "give me code", "write this for me", "show me the full code", "solve it", "give code", or anything similar, you MUST politely and firmly decline to write the code. Explain the concept, provide pseudo-logic or a tiny 1-line conceptual skeleton if necessary, and prompt them with the next step.
+3. **DO NOT SPOIL THE SOLUTION**: Point out where to look, explain the "why" and "how", highlight edge cases, but make the student write the implementation.
+4. **KEEP CODE SAMPLES MINIMAL & ABSTRACT**: If illustrating syntax, provide only generic 1-line signatures or abstract snippets with placeholder names, never the exact solution to the task.
+5. Format your answers clearly with markdown, bullet points, and concise explanations.`;
+
+        // Filter valid history turns
+        const chatTurns = history
           .filter((msg) => msg.role === "user" || msg.role === "assistant")
           .slice(-6)
           .map((msg) => ({
@@ -127,7 +134,7 @@ const chatTurns = history
       }
     }
 
-    // Built-in intelligent mentor response generator (project-agnostic fallback)
+    // Fallback placeholder
     const reply = generateMentorResponse(message, task, activeFile);
     return NextResponse.json({ reply });
   } catch (err: any) {
