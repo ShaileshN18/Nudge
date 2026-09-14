@@ -49,9 +49,6 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #334155;
 }
-crollbar-thumb:hover {
-  background: #334155;
-}
 
 /* Monaco Editor "Need a Nudge" Line Highlight & Red Gutter Dot */
 .monaco-editor .monaco-nudge-line-highlight {
@@ -78,4 +75,21 @@ crollbar-thumb:hover {
 }
 
 .monaco-editor .monaco-nudge-glyph-margin {
-  background-color: transparent !important
+  background-color: transparent !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.monaco-editor .monaco-nudge-glyph-margin::after {
+  content: "" !important;
+  display: block !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background-color: #ef4444 !important;
+  box-shadow: 0 0 8px #ef4444, 0 0 12px rgba(239, 68, 68, 0.7) !important;
+  margin: 5px auto !important;
+}
+
