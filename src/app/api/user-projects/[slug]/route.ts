@@ -60,6 +60,17 @@ export async function GET(
         tasks: fallbackSeed.tasks,
         files: fallbackSeed.files,
       }).catch(() => fallbackSeed);
+    } else if (baseProject && fallbackSeed.files) {
+      // Sync base project files if starter templates were updated
+      const baseUserModel = baseProject.files?.find((f: any) => f.path.includes("models/User.js"));
+      const seedModelFile = fallbackSeed.files.find((f: any) => f.path.includes("models/User.js"));
+      if (baseUserModel && seedModelFile && !baseUserModel.content.includes("TODO")) {
+        await Project.updateOne(
+          { _id: baseProject._id },
+          { $set: { files: fallbackSeed.files, tasks: fallbackSeed.tasks } }
+        ).catch(() => null);
+        baseProject.files = fallbackSeed.files;
+      }
     }
 
     // 2. Look for existing UserProject workspace
@@ -186,6 +197,26 @@ export async function PATCH(
         completedTasks: [],
         activeFilePath: initialFiles[0]?.path || "",
         lastActiveAt: new Date(),
+      });
+    }
+
+    if (body.reset === true) {
+      const initialFiles = (fallbackSeed.files || []).map((f: any) => ({
+        path: f.path,
+        content: f.content,
+      }));
+      userProject.files = initialFiles;
+      userProject.completedTasks = [];
+      userProject.currentTaskIndex = 0;
+      userProject.activeFilePath = initialFiles[0]?.path || "";
+      await userProject.save();
+      return NextResponse.json({
+        success: true,
+        data: {
+          files: userProject.files,
+          completedTasks: userProject.completedTasks,
+          currentTaskIndex: userProject.currentTaskIndex,
+        },
       });
     }
 
