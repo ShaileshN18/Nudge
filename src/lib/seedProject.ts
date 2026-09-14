@@ -523,9 +523,11 @@ const users = [];
  * @returns {string} Stored password hash with salt
  */
 function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-  return \`\${salt}:\${hash}\`;
+  // TODO: Task 1 - Implement secure password hashing!
+  // 1. Generate a 16-byte random salt using crypto.randomBytes(16).toString('hex')
+  // 2. Hash the password with the salt using crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex')
+  // 3. Return the combined string \`\${salt}:\${hash}\`
+  return password; // Insecure plain text placeholder (Implement hashing to pass!)
 }
 
 /**
@@ -535,10 +537,11 @@ function hashPassword(password) {
  * @returns {boolean} True if password matches
  */
 function comparePassword(password, storedHash) {
-  if (!storedHash || !storedHash.includes(':')) return false;
-  const [salt, originalHash] = storedHash.split(':');
-  const candidateHash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-  return candidateHash === originalHash;
+  // TODO: Task 1 - Implement password comparison!
+  // 1. Check if storedHash contains the salt separator ':'
+  // 2. Split storedHash into salt and originalHash
+  // 3. Hash candidate password with the salt and verify against originalHash
+  return false;
 }
 
 /**
@@ -702,50 +705,19 @@ const { findUserById } = require('../models/User');
 function authMiddleware(req, res, next) {
   const authHeader = req.headers['authorization'] || req.headers['Authorization'];
 
-  if (!authHeader) {
-    return res.status(401).json({
-      success: false,
-      error: 'Access denied. No authorization header provided.'
-    });
-  }
-
-  if (!authHeader.startsWith('Bearer ')) {
+  // TODO: Task 3 - Validate Bearer token header, verify with verifyToken, attach req.user, and call next()!
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({
       success: false,
       error: 'Access denied. Format must be: Bearer <token>'
     });
   }
 
-  const token = authHeader.split(' ')[1];
-
-  try {
-    const decoded = verifyToken(token);
-    const user = findUserById(decoded.userId);
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: 'User associated with this token no longer exists.'
-      });
-    }
-
-    // Attach decoded user info to request
-    req.user = {
-      id: user.id,
-      name: user.name,
-      email: user.email
-    };
-
-    if (typeof next === 'function') {
-      next();
-    }
-    return true;
-  } catch (err) {
-    return res.status(401).json({
-      success: false,
-      error: err.message || 'Invalid or expired authentication token.'
-    });
-  }
+  // TODO: Verify token and attach user
+  return res.status(501).json({
+    success: false,
+    error: 'JWT authentication middleware not implemented'
+  });
 }
 
 module.exports = authMiddleware;
@@ -772,33 +744,11 @@ function register(req, res) {
     });
   }
 
-  if (password.length < 6) {
-    return res.status(400).json({
-      success: false,
-      error: 'Password must be at least 6 characters long.'
-    });
-  }
-
-  try {
-    const user = createUser({ name, email, password });
-    const token = generateToken({ userId: user.id, email: user.email });
-
-    return res.status(201).json({
-      success: true,
-      message: 'User registered successfully',
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email
-      }
-    });
-  } catch (err) {
-    return res.status(400).json({
-      success: false,
-      error: err.message || 'Registration failed'
-    });
-  }
+  // TODO: Task 2 - Validate password length, create user with passwordHash, generate signed JWT token, and return 201!
+  return res.status(501).json({
+    success: false,
+    error: 'Registration handler not implemented'
+  });
 }
 
 /**
@@ -814,33 +764,10 @@ function login(req, res) {
     });
   }
 
-  const user = findUserByEmail(email);
-  if (!user) {
-    return res.status(401).json({
-      success: false,
-      error: 'Invalid email or password.'
-    });
-  }
-
-  const isValidPassword = comparePassword(password, user.passwordHash);
-  if (!isValidPassword) {
-    return res.status(401).json({
-      success: false,
-      error: 'Invalid email or password.'
-    });
-  }
-
-  const token = generateToken({ userId: user.id, email: user.email });
-
-  return res.json({
-    success: true,
-    message: 'Login successful',
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email
-    }
+  // TODO: Task 2 - Find user by email, compare password hash, generate signed JWT token, and return token!
+  return res.status(501).json({
+    success: false,
+    error: 'Login handler not implemented'
   });
 }
 
