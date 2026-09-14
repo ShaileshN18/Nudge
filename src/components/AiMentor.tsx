@@ -78,7 +78,7 @@ Ask me for code reviews, architectural explanations, or click **"Need a Nudge"**
 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isNudging, setIsNudging // nudging state] = useState(false);
+  const [isNudging, setIsNudging] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
