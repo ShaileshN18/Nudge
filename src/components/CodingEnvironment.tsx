@@ -24,7 +24,7 @@ import {
   Check,
 } from "lucide-react";
 import FileTree from "@/components/FileTree";
-import CodeEditor, { type OpenTab } from "@/components/CodeEditor";
+import CodeEditor, { type OpenTab, type EditorHint } from "@/components/CodeEditor";
 import TaskHeader, { type TaskItem } from "@/components/TaskHeader";
 import AiMentor from "@/components/AiMentor";
 import LivePreviewView from "@/components/LivePreviewView";
@@ -38,10 +38,12 @@ import {
   mountProject,
   spawnProcess,
   writeProjectFile,
+  readProjectFile,
   onServerReady,
   getWebContainer,
   detectServerCommand,
 } from "@/lib/webcontainer";
+import { buildAIContext } from "@/lib/aiContext";
 
 export interface ProjectFile {
   path: string;
@@ -84,9 +86,13 @@ export default function CodingEnvironment({
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
   const [evalResults, setEvalResults] = useState<{
     passed: boolean;
-    criteriaStatus: { title: string; passed: boolean }[];
+    criteriaStatus: { title: string; passed: boolean; feedback?: string }[];
+    overallFeedback?: string;
   } | null>(null);
   const [showTaskDetailsModal, setShowTaskDetailsModal] = useState(false);
+
+  // Active Nudge / Hint State
+  const [activeHint, setActiveHint] = useState<EditorHint | null>(null);
 
   // Cloud Save State
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -131,14 +137,8 @@ export default function CodingEnvironment({
     }
   }, [panelExpanded]);
 
-  // AI Mentor state & Line Highlighting
+  // AI Mentor state
   const [externalAiPrompt, setExternalAiPrompt] = useState<string | null>(null);
-  const [highlightTarget, setHighlightTarget] = useState<{
-    path: string;
-    line: number;
-    endLine?: number;
-    timestamp: number;
-  } | null>(null);
 
   // ── Load user workspace & project data ──────────────────────────────
   useEffect(() => {
@@ -302,26 +302,6 @@ export default function CodingEnvironment({
       });
     },
     [activeFilePath]
-  );
-
-  const handleHighlightInEditor = useCallback(
-    (filePath: string, line: number, endLine?: number) => {
-      const cleanPath = filePath.replace(/^\/+/, "");
-      const matchedFile = project?.files?.find(
-        (f) => f.path.replace(/^\/+/, "") === cleanPath
-      );
-      const targetPath = matchedFile ? matchedFile.path : cleanPath;
-
-      handleSelectFile(targetPath);
-
-      setHighlightTarget({
-        path: targetPath,
-        line,
-        endLine,
-        timestamp: Date.now(),
-      });
-    },
-    [project?.files, handleSelectFile]
   );
 
   const handleCreateFile = useCallback(
@@ -502,10 +482,34 @@ export default function CodingEnvironment({
     [projectIdOrSlug]
   );
 
+  const handleActiveFileLoaded = useCallback((content: string) => {
+    setActiveFileContent(content);
+  }, []);
+
   const handleContentChange = useCallback(
     (content: string) => {
       setActiveFileContent(content);
       setSaveStatus("saving");
+
+      // Keep project.files in sync with live editor edits without unnecessary re-renders
+      setProject((prev) => {
+        if (!prev) return prev;
+        const cleanActive = (activeFilePath || "").replace(/^\/+/, "");
+        const existing = prev.files.find((f) => f.path.replace(/^\/+/, "") === cleanActive);
+        if (existing && existing.content === content) {
+          return prev;
+        }
+        return {
+          ...prev,
+          files: prev.files.map((f) => {
+            const cleanF = f.path.replace(/^\/+/, "");
+            if (cleanF === cleanActive) {
+              return { ...f, content };
+            }
+            return f;
+          }),
+        };
+      });
 
       if (activeFilePath) {
         // Fast local WebContainer auto-save
@@ -527,6 +531,20 @@ export default function CodingEnvironment({
     },
     [activeFilePath, saveFileToCloud]
   );
+
+  const modifiedFilesList = React.useMemo(() => {
+    return (
+      project?.files
+        ?.filter((f) => {
+          const clean = f.path.replace(/^\/+/, "");
+          return (
+            !starterFilePaths.includes(clean) ||
+            (activeFilePath && clean === activeFilePath.replace(/^\/+/, ""))
+          );
+        })
+        .map((f) => f.path) || []
+    );
+  }, [project?.files, starterFilePaths, activeFilePath]);
 
   // ── Task Management & Evaluation ──────────────────────────────────
   const currentTask: TaskItem =
@@ -834,46 +852,176 @@ export default function CodingEnvironment({
     setTerminalLogs((prev) => [
       ...prev,
       "",
-      `▶ Executing criteria evaluation for Task ${currentTask.order}: "${currentTask.title}"...`,
+      `🤖 [AI Evaluation] Inspecting codebase against Task ${currentTask.order}: "${currentTask.title}"...`,
     ]);
 
-    const criteria = currentTask.evaluationCriteria || [
-      "User schema defines name, email, and passwordHash fields",
-      "hashPassword function encrypts plain passwords with salt",
-      "comparePassword function accurately validates matched and mismatched passwords",
-      "Plain text passwords are never stored or returned in responses",
-    ];
-
-    setTimeout(async () => {
-      const results = criteria.map((c) => ({ title: c, passed: true }));
-      setEvalResults({ passed: true, criteriaStatus: results });
-      setTaskCompleted(true);
-      setEvaluating(false);
-
-      const taskKey = String(currentTask.order || currentTaskIndex + 1);
-      const updatedCompleted = Array.from(new Set([...completedTasks, taskKey]));
-      setCompletedTasks(updatedCompleted);
-
-      // Persist task completion to MongoDB
+    // Auto-save active file first
+    if (activeFilePath && activeFileContent) {
       try {
-        await fetch(`/api/user-projects/${projectIdOrSlug}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            completedTasks: updatedCompleted,
-            currentTaskIndex,
-          }),
-        });
+        await writeProjectFile(activeFilePath, activeFileContent);
       } catch (saveErr) {
-        console.warn("Failed to persist task completion:", saveErr);
+        console.warn("Auto-save error before evaluation:", saveErr);
+      }
+    }
+
+    try {
+      // 1. Read targetFiles directly from WebContainer (single source of truth)
+      const targetFilePaths = currentTask.targetFiles || [];
+      const targetFilesContent: Array<{ path: string; content: string }> = [];
+
+      for (const p of targetFilePaths) {
+        const clean = p.replace(/^\/+/, "");
+        try {
+          const content = await readProjectFile(clean);
+          targetFilesContent.push({ path: clean, content });
+        } catch {
+          if (activeFilePath && clean === activeFilePath.replace(/^\/+/, "")) {
+            targetFilesContent.push({ path: clean, content: activeFileContent });
+          } else {
+            const fallback = project?.files?.find((f) => f.path.replace(/^\/+/, "") === clean);
+            targetFilesContent.push({ path: clean, content: fallback?.content || "" });
+          }
+        }
       }
 
+      // 2. Build the minimal, focused AI Context (zero unrelated files sent)
+      const aiContext = buildAIContext(currentTask, targetFilesContent, project);
+
+      const res = await fetch("/api/ai/evaluate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task: {
+            order: aiContext.taskOrder,
+            title: aiContext.taskTitle,
+            goal: aiContext.goal,
+            description: aiContext.description,
+            targetFiles: aiContext.targetFiles,
+            evaluationCriteria: aiContext.evaluationCriteria,
+          },
+          files: aiContext.files,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Evaluation failed");
+      }
+
+      const evalData = data.evaluation;
+      const isPassed = Boolean(evalData.passed);
+
+      setEvalResults({
+        passed: isPassed,
+        criteriaStatus: evalData.criteriaStatus || [],
+        overallFeedback: evalData.overallFeedback,
+      });
+
+      if (isPassed) {
+        setTaskCompleted(true);
+        const taskKey = String(currentTask.order || currentTaskIndex + 1);
+        const updatedCompleted = Array.from(new Set([...completedTasks, taskKey]));
+        setCompletedTasks(updatedCompleted);
+        setActiveHint(null);
+
+        // Persist task completion to MongoDB
+        try {
+          await fetch(`/api/user-projects/${projectIdOrSlug}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              completedTasks: updatedCompleted,
+              currentTaskIndex,
+            }),
+          });
+        } catch (saveErr) {
+          console.warn("Failed to persist task completion to MongoDB:", saveErr);
+        }
+
+        // Auto-advance to the next task if available!
+        if (project?.tasks && currentTaskIndex < project.tasks.length - 1) {
+          const nextIndex = currentTaskIndex + 1;
+          const nextTask = project.tasks[nextIndex];
+
+          setTerminalLogs((prev) => [
+            ...prev,
+            `🚀 [Auto-Advance] Task ${currentTask.order} passed! Advancing to Task ${nextTask.order}: "${nextTask.title}"...`,
+          ]);
+
+          setTimeout(() => {
+            setCurrentTaskIndex(nextIndex);
+            const nextTaskOrder = String(nextTask.order || nextIndex + 1);
+            setTaskCompleted(updatedCompleted.includes(nextTaskOrder));
+            setEvalResults(null);
+
+            // Automatically open next task's target file in editor
+            if (nextTask.targetFiles && nextTask.targetFiles.length > 0) {
+              const nextTarget = nextTask.targetFiles[0].replace(/^\/+/, "");
+              const matchingFile = project.files.find((f) => {
+                const clean = f.path.replace(/^\/+/, "");
+                return (
+                  clean === nextTarget ||
+                  clean.endsWith("/" + nextTarget) ||
+                  nextTarget.endsWith("/" + clean)
+                );
+              });
+              if (matchingFile) {
+                handleSelectFile(matchingFile.path);
+              }
+            }
+
+            // Persist new currentTaskIndex
+            fetch(`/api/user-projects/${projectIdOrSlug}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                currentTaskIndex: nextIndex,
+              }),
+            }).catch((err) => console.warn("Auto-advance persist error:", err));
+          }, 1200);
+        } else {
+          setTerminalLogs((prev) => [
+            ...prev,
+            `🏆 Congratulations! You have completed all tasks in this project!`,
+          ]);
+        }
+      } else {
+        // Explicit trigger cost control: do not automatically fire background nudge AI calls
+        setTerminalLogs((prev) => [
+          ...prev,
+          `💡 [Task Incomplete] Inspect the failed criteria below. Click 'Need a nudge' in the AI Mentor panel if you want guidance.`,
+        ]);
+      }
+
+      // Log results to terminal with visual cues
       setTerminalLogs((prev) => [
         ...prev,
-        ...results.map((r) => `  ✔ [PASSED] ${r.title}`),
-        `🎉 Task ${currentTask.order} completed successfully!`,
+        "======================================================",
+        `📊 AI Evaluation Results for Task ${currentTask.order}`,
+        "======================================================",
+        ...(evalData.criteriaStatus || []).map((c: any) =>
+          c.passed
+            ? `  ✔ [PASSED] ${c.title}${c.feedback ? ` — ${c.feedback}` : ""}`
+            : `  ❌ [FAILED] ${c.title}${c.feedback ? ` — ${c.feedback}` : ""}`
+        ),
+        "------------------------------------------------------",
+        evalData.overallFeedback ? `💬 Feedback: ${evalData.overallFeedback}` : "",
+        isPassed
+          ? `🎉 Task ${currentTask.order} completed successfully! You can move to the next task.`
+          : `⚠️ Some requirements are not yet satisfied. Check the feedback above or click "Need a Nudge" in the AI Mentor tab for guidance.`,
+        "======================================================",
       ]);
-    }, 1000);
+    } catch (err: any) {
+      console.error("Evaluation execution error:", err);
+      setTerminalLogs((prev) => [
+        ...prev,
+        `❌ [AI Evaluation Error]: ${
+          err?.message || "Failed to evaluate code. Ensure GEMINI_API_KEY is configured in .env."
+        }`,
+      ]);
+    } finally {
+      setEvaluating(false);
+    }
   };
 
   const handleNextTask = () => {
@@ -1167,9 +1315,11 @@ export default function CodingEnvironment({
                             onSelectTab={handleSelectTab}
                             onCloseTab={handleCloseTab}
                             onContentChange={handleContentChange}
+                            onFileLoaded={handleActiveFileLoaded}
                             onTriggerAriaNudge={handleAriaPrompt}
                             initialFiles={project?.files}
-                            highlightTarget={highlightTarget}
+                            activeHint={activeHint}
+                            onClearHint={() => setActiveHint(null)}
                           />
                         </ResizablePanel>
 
@@ -1201,9 +1351,11 @@ export default function CodingEnvironment({
                         onSelectTab={handleSelectTab}
                         onCloseTab={handleCloseTab}
                         onContentChange={handleContentChange}
+                        onFileLoaded={handleActiveFileLoaded}
                         onTriggerAriaNudge={handleAriaPrompt}
                         initialFiles={project?.files}
-                        highlightTarget={highlightTarget}
+                        activeHint={activeHint}
+                        onClearHint={() => setActiveHint(null)}
                       />
                     )}
                   </ResizablePanel>
@@ -1522,10 +1674,24 @@ export default function CodingEnvironment({
               activeFileContent={activeFileContent}
               externalPrompt={externalAiPrompt}
               onClearExternalPrompt={() => setExternalAiPrompt(null)}
-              terminalLogs={terminalLogs}
-              evalResults={evalResults}
-              projectFiles={project?.files}
-              onHighlightInEditor={handleHighlightInEditor}
+              files={project?.files}
+              modifiedFiles={modifiedFilesList}
+              onNudgeReceived={(nudge) => {
+                setActiveHint(nudge);
+                // If the nudge specifies a target file and it's not currently open, switch to it
+                if (nudge.targetFile) {
+                  const targetClean = nudge.targetFile.replace(/^\/+/, "");
+                  const matchingFile = project?.files?.find(
+                    (f) =>
+                      f.path.replace(/^\/+/, "") === targetClean ||
+                      f.path.endsWith("/" + targetClean) ||
+                      targetClean.endsWith("/" + f.path.replace(/^\/+/, ""))
+                  );
+                  if (matchingFile) {
+                    handleSelectTab(matchingFile.path);
+                  }
+                }
+              }}
             />
           </ResizablePanel>
         </ResizablePanelGroup>
