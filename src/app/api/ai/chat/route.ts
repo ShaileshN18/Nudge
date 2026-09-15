@@ -96,7 +96,7 @@ ${cleanedActiveContent}
               contents,
               generationConfig: {
                 temperature: 0.3,
-                maxOutputTokens: 500,
+                maxOutputTokens: 2048,
               },
             }),
           }

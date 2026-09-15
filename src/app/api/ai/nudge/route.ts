@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { cleanFileContent } from "@/lib/aiContext";
+import { cleanFileContent, extractAndParseJson } from "@/lib/aiContext";
 
 export const dynamic = "force-dynamic";
 
@@ -105,7 +105,7 @@ STRICT HINT RULES:
           generationConfig: {
             responseMimeType: "application/json",
             temperature: 0.2,
-            maxOutputTokens: 300,
+            maxOutputTokens: 2048,
           },
         }),
       }
