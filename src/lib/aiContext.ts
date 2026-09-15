@@ -80,3 +80,51 @@ export function cleanFileContent(content: string, maxLines = 350): string {
   }
   return normalized;
 }
+
+/**
+ * Robust JSON parser for AI model responses.
+ * Handles markdown code fences, preambles/postambles, and extracts outermost JSON object or array.
+ */
+export function extractAndParseJson<T = any>(text: string): T {
+  if (!text || typeof text !== "string") {
+    throw new Error("Empty response text from AI model");
+  }
+
+  const trimmed = text.trim();
+
+  // 1. Direct parse attempt
+  try {
+    return JSON.parse(trimmed);
+  } catch {}
+
+  // 2. Strip markdown code fences (```json ... ``` or ``` ...)
+  const stripped = trimmed
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    return JSON.parse(stripped);
+  } catch {}
+
+  // 3. Extract outermost JSON object { ... }
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = text.slice(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch {}
+  }
+
+  // 4. Extract outermost JSON array [ ... ]
+  const firstBracket = text.indexOf("[");
+  const lastBracket = text.lastIndexOf("]");
+  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+    const candidate = text.slice(firstBracket, lastBracket + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch {}
+  }
+
+  throw new Error("Invalid JSON structure in model response");
+}
