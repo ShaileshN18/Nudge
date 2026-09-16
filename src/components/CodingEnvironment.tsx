@@ -22,6 +22,10 @@ import {
   Square,
   Copy,
   Check,
+  Search,
+  Sun,
+  RotateCcw,
+  XCircle,
 } from "lucide-react";
 import FileTree from "@/components/FileTree";
 import CodeEditor, { type OpenTab, type EditorHint } from "@/components/CodeEditor";
@@ -88,11 +92,44 @@ export default function CodingEnvironment({
     passed: boolean;
     criteriaStatus: { title: string; passed: boolean; feedback?: string }[];
     overallFeedback?: string;
-  } | null>(null);
+  } | null>({
+    passed: false,
+    criteriaStatus: [
+      {
+        title: "GET /api/feedback responds with HTTP status 200",
+        passed: false,
+        feedback:
+          "The server fails to start due to a ReferenceError/SyntaxError in backend/src/models/Feedback.js at line 12: 'res' is not defined at the top level.",
+      },
+      {
+        title: "Response body is an array of feedback documents",
+        passed: false,
+        feedback: "Unable to verify because the application crashes on startup.",
+      },
+      {
+        title: "Each feedback item contains title, description, category, and votes",
+        passed: false,
+        feedback: "Unable to verify because the application crashes on startup.",
+      },
+      {
+        title: "Feedback items are sorted in descending order",
+        passed: false,
+        feedback: "Unable to verify because the application crashes on startup.",
+      },
+    ],
+    overallFeedback: "0 / 4 tests passed. Fix the issues below and try again.",
+  });
   const [showTaskDetailsModal, setShowTaskDetailsModal] = useState(false);
 
   // Active Nudge / Hint State
-  const [activeHint, setActiveHint] = useState<EditorHint | null>(null);
+  const [activeHint, setActiveHint] = useState<EditorHint | null>({
+    targetFile: "backend/src/feedback.js",
+    startLine: 16,
+    endLine: 16,
+    hint: "This line is causing an error. See details below.",
+    concept: "Query the database",
+    isError: true,
+  });
 
   // Cloud Save State
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -108,12 +145,15 @@ export default function CodingEnvironment({
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
 
   // Bottom Console / Terminal state
-  const [activeBottomTab, setActiveBottomTab] = useState<"terminal" | "problems" | "preview">("terminal");
+  const [activeBottomTab, setActiveBottomTab] = useState<"terminal" | "evaluation" | "problems" | "preview">("terminal");
   const [runningCode, setRunningCode] = useState(false);
   const [terminalInput, setTerminalInput] = useState("");
   const [terminalLogs, setTerminalLogs] = useState<string[]>([
-    "🚀 WebContainer Node.js Runtime Ready",
-    "💡 Type commands below, click 'Run Code', or click 'Live Preview' to view the running app.",
+    "WebContainer ready",
+    "$ npm run dev",
+    "> feedback-board@1.0.0 dev",
+    "> node server.js",
+    "✔ Server running at http://localhost:3000",
   ]);
 
   // Server & Live Preview state
@@ -1090,112 +1130,103 @@ export default function CodingEnvironment({
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#07090f] text-slate-100 overflow-hidden font-sans select-none">
-      {/* ── Top Bar / Header ── */}
-      <header className="h-11 bg-[#090d16] border-b border-slate-800/80 px-4 flex items-center justify-between shrink-0 z-20">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/"
-            className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors"
-            title="Return to Catalog"
-          >
-            <ArrowLeft className="h-4 w-4" />
+      {/* ── Top Bar / Header: CodeLearn Branding, Nav, Search & Avatar ── */}
+      <header className="h-12 bg-[#090d14] border-b border-slate-800/80 px-4 flex items-center justify-between shrink-0 z-20">
+        {/* Left: Stylized Glyph, CodeLearn Title, Links */}
+        <div className="flex items-center gap-6">
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <div className="flex items-center justify-center text-[#10b981]">
+              <svg className="w-5 h-5 text-[#10b981]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 17 10 11 4 5" />
+                <line x1="12" y1="19" x2="20" y2="19" />
+              </svg>
+            </div>
+            <span className="font-bold text-sm tracking-tight text-white group-hover:text-emerald-400 transition-colors">
+              CodeLearn
+            </span>
           </Link>
 
-          <span className="text-xs font-bold tracking-tight text-white">
-            {brandName}
-          </span>
-
-          <span className="text-[10px] text-slate-500 font-mono">
-            {project?.track || "Fullstack"}
-          </span>
+          <nav className="hidden md:flex items-center gap-6 text-xs">
+            <button className="text-slate-400 hover:text-white transition-colors cursor-pointer">
+              Learn
+            </button>
+            <button className="text-white font-semibold transition-colors cursor-pointer">
+              Projects
+            </button>
+            <button className="text-slate-400 hover:text-white transition-colors cursor-pointer">
+              Progress
+            </button>
+          </nav>
         </div>
 
-        {/* Mounting / Ready & Cloud Save Indicator */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full bg-slate-800/60 border border-slate-700/50">
-            {saveStatus === "saving" && (
-              <>
-                <RefreshCw className="h-3 w-3 text-amber-400 animate-spin" />
-                <span className="text-amber-300">Saving...</span>
-              </>
-            )}
-            {saveStatus === "saved" && (
-              <>
-                <Check className="h-3 w-3 text-emerald-400" />
-                <span className="text-slate-300">Saved to cloud</span>
-              </>
-            )}
-            {saveStatus === "error" && (
-              <>
-                <AlertCircle className="h-3 w-3 text-rose-400" />
-                <span className="text-rose-300">Save error</span>
-              </>
-            )}
-            {saveStatus === "idle" && (
-              <>
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                <span className="text-slate-400">Cloud Synced</span>
-              </>
-            )}
+        {/* Right: Search bar, Theme toggle & Avatar */}
+        <div className="flex items-center gap-3">
+          {/* Search with Ctrl K */}
+          <div className="hidden sm:flex items-center gap-2 bg-[#121622] border border-slate-800/80 rounded-lg px-2.5 py-1 text-xs text-slate-400 w-44">
+            <Search className="h-3.5 w-3.5 text-slate-500" />
+            <span className="flex-1 text-[11px] text-slate-500">Search...</span>
+            <kbd className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700/60">
+              Ctrl K
+            </kbd>
           </div>
 
-          {isMounting ? (
-            <div className="flex items-center gap-1.5 text-[11px] text-amber-400">
-              <RefreshCw className="h-3 w-3 animate-spin" />
-              <span>Mounting environment...</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              <span>WebContainer Active</span>
-            </div>
-          )}
+          {/* Theme toggle */}
+          <button
+            className="p-1.5 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            title="Toggle Theme"
+          >
+            <Sun className="h-4 w-4" />
+          </button>
 
           {/* User Profile / Avatar */}
-          {user ? (
-            <div className="flex items-center gap-2">
-              <div
-                className="h-6 w-6 rounded-full bg-gradient-to-tr from-indigo-600 to-blue-500 border border-indigo-400/50 flex items-center justify-center text-xs font-bold text-white shadow-sm uppercase"
-                title={`${user.name} (${user.email})`}
-              >
-                {user.name ? user.name[0] : "U"}
-              </div>
-              <span className="text-xs text-slate-300 font-medium hidden sm:inline">
-                {user.name}
-              </span>
-            </div>
-          ) : (
-            <div
-              className="h-6 w-6 rounded-full bg-blue-600/30 border border-blue-500/50 flex items-center justify-center text-xs font-bold text-blue-300 shadow-sm"
-              title="User Profile"
-            >
-              U
-            </div>
-          )}
+          <div
+            className="h-7 w-7 rounded-full bg-[#10b981]/25 border border-[#10b981]/50 flex items-center justify-center text-xs font-bold text-[#34d399] shadow-sm uppercase cursor-pointer"
+            title={user ? `${user.name} (${user.email})` : "Tanishq"}
+          >
+            {user?.name ? user.name[0] : "T"}
+          </div>
         </div>
       </header>
 
       {/* ── Main Workspace: 3 Columns with Resizable Panels ── */}
       <div className="flex-1 flex overflow-hidden">
         <ResizablePanelGroup orientation="horizontal" id="main-horizontal-workspace">
-          {/* ── LEFT COLUMN: Project Tree (Resizable!) ── */}
+          {/* ── LEFT COLUMN: Project Tree & Progress Donut (Resizable!) ── */}
           <ResizablePanel
             id="panel-file-tree"
             defaultSize="18%"
-            minSize="10%"
+            minSize="12%"
             maxSize="35%"
             collapsible={true}
-            className="bg-[#090d16] flex flex-col overflow-hidden"
+            className="bg-[#0b0f15] flex flex-col overflow-hidden border-r border-slate-800/80"
           >
-            {/* Section Header */}
-            <div className="px-4 py-3 border-b border-slate-800/60 flex items-center justify-between shrink-0">
-              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+            {/* Back to projects link */}
+            <div className="px-4 pt-3.5 pb-2">
+              <Link
+                href="/"
+                className="inline-flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>Back to projects</span>
+              </Link>
+            </div>
+
+            {/* Project Selector Dropdown */}
+            <div className="px-4 py-2 border-b border-slate-800/60">
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
                 Project
-              </span>
+              </div>
+              <button
+                onClick={() => setShowTaskDetailsModal(true)}
+                className="flex items-center justify-between w-full text-left text-xs font-bold text-white hover:text-slate-200 pt-0.5 group cursor-pointer"
+              >
+                <span className="truncate">{project?.title || "Full-Stack Feedback Board"}</span>
+                <ChevronDown className="h-3.5 w-3.5 text-slate-400 group-hover:text-white shrink-0 ml-1" />
+              </button>
             </div>
 
             {/* File Explorer */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto px-1 py-1">
               <FileTree
                 activePath={activeFilePath}
                 onSelectFile={handleSelectFile}
@@ -1208,18 +1239,45 @@ export default function CodingEnvironment({
               />
             </div>
 
-            {/* Bottom Button: "View task details" matching the screenshot! */}
-            <div className="p-3 border-t border-slate-800/80 bg-[#0c101b] shrink-0">
-              <button
-                onClick={() => setShowTaskDetailsModal(true)}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[#131826] hover:bg-[#182033] border border-slate-800 hover:border-slate-700 text-xs font-medium text-slate-300 hover:text-white transition-all shadow-sm group cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <ListTodo className="h-4 w-4 text-indigo-400 group-hover:text-indigo-300" />
-                  <span>View task details</span>
+            {/* Bottom: Task Progress Donut Card matching screenshots */}
+            <div className="p-3 border-t border-slate-800/80 bg-[#0d121c] shrink-0">
+              <div className="flex items-center gap-3">
+                {/* Circular Donut Progress Ring */}
+                <div className="relative w-10 h-10 shrink-0 flex items-center justify-center">
+                  <svg className="w-10 h-10 transform -rotate-90" viewBox="0 0 36 36">
+                    {/* Background Ring */}
+                    <path
+                      className="text-slate-800"
+                      strokeWidth="3.5"
+                      stroke="currentColor"
+                      fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    />
+                    {/* Progress Teal Ring: 20% */}
+                    <path
+                      className="text-[#10b981]"
+                      strokeDasharray={`${((currentTaskIndex + 1) / (project?.tasks?.length || 5)) * 100}, 100`}
+                      strokeWidth="3.5"
+                      strokeLinecap="round"
+                      stroke="currentColor"
+                      fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    />
+                  </svg>
                 </div>
-                <ChevronDown className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-300" />
-              </button>
+
+                <div className="space-y-0.5">
+                  <div className="text-[11px] font-medium text-slate-400">
+                    Task progress
+                  </div>
+                  <div className="text-xs font-bold text-white">
+                    {currentTaskIndex + 1} of {project?.tasks?.length || 5}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {Math.round(((currentTaskIndex + 1) / (project?.tasks?.length || 5)) * 100)}% complete
+                  </div>
+                </div>
+              </div>
             </div>
           </ResizablePanel>
 
@@ -1374,186 +1432,111 @@ export default function CodingEnvironment({
                     className="bg-[#0a0d16] flex flex-col overflow-hidden"
                   >
                     {/* Panel Tabs Header */}
-                    <div className="h-8 bg-[#0e1322] border-b border-slate-800/80 px-3 flex items-center justify-between shrink-0">
+                    <div className="h-9 bg-[#0b0f15] border-b border-slate-800/80 px-4 flex items-center justify-between shrink-0">
                       <div className="flex items-center gap-4 text-xs font-medium">
                         <button
                           onClick={() => setActiveBottomTab("terminal")}
-                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 ${
+                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
                             activeBottomTab === "terminal"
-                              ? "border-amber-400 text-white font-semibold"
+                              ? "border-[#10b981] text-white font-semibold"
                               : "border-transparent text-slate-400 hover:text-slate-200"
                           }`}
                         >
-                          <Terminal className="h-3 w-3 text-amber-400" />
+                          <Terminal className="h-3.5 w-3.5 text-[#10b981]" />
                           <span>Terminal</span>
                         </button>
 
                         <button
                           onClick={() => setActiveBottomTab("problems")}
-                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 ${
+                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
                             activeBottomTab === "problems"
-                              ? "border-amber-400 text-white font-semibold"
+                              ? "border-[#10b981] text-white font-semibold"
                               : "border-transparent text-slate-400 hover:text-slate-200"
                           }`}
                         >
-                          <AlertCircle className="h-3 w-3 text-slate-400" />
+                          <AlertCircle className="h-3.5 w-3.5 text-slate-400" />
                           <span>Problems 0</span>
                         </button>
 
                         <button
-                          onClick={() => setActiveBottomTab("preview")}
+                          onClick={() => setActiveBottomTab("evaluation")}
                           className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
-                            activeBottomTab === "preview"
-                              ? "border-cyan-400 text-white font-semibold"
+                            activeBottomTab === "evaluation"
+                              ? "border-rose-500 text-white font-semibold"
                               : "border-transparent text-slate-400 hover:text-slate-200"
                           }`}
                         >
-                          <div className="relative flex items-center justify-center">
-                            <Globe className="h-3 w-3 text-cyan-400" />
-                            {isServerRunning && (
-                              <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                            )}
-                          </div>
-                          <span>Live Preview</span>
-                          {isServerRunning && (
-                            <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                              :5000
-                            </span>
-                          )}
+                          <XCircle className="h-3.5 w-3.5 text-rose-400" />
+                          <span>Evaluation Results</span>
                         </button>
+
+                        {previewUrl && (
+                          <button
+                            onClick={() => setActiveBottomTab("preview")}
+                            className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
+                              activeBottomTab === "preview"
+                                ? "border-cyan-400 text-white font-semibold"
+                                : "border-transparent text-slate-400 hover:text-slate-200"
+                            }`}
+                          >
+                            <Globe className="h-3.5 w-3.5 text-cyan-400" />
+                            <span>Preview</span>
+                          </button>
+                        )}
                       </div>
 
-                      {/* Console / Preview Toolbar buttons on right */}
-                      <div className="flex items-center gap-2">
-                        {activeBottomTab === "preview" ? (
+                      {/* Console / Evaluation Toolbar buttons on right */}
+                      <div className="flex items-center gap-3">
+                        {activeBottomTab === "evaluation" ? (
                           <>
+                            <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                              <span>Ran 4 tests</span>
+                              <span>•</span>
+                              <span className="text-rose-400 font-semibold">4 failed</span>
+                              <span>⏱ 2.4s</span>
+                            </span>
+
                             <button
-                              onClick={async () => {
-                                if (activeFilePath && activeFileContent) {
-                                  try {
-                                    await writeProjectFile(activeFilePath, activeFileContent);
-                                  } catch {}
-                                }
-                                setIframeReloadKey((k) => k + 1);
-                              }}
-                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] transition-colors cursor-pointer"
-                              title="Reload preview iframe"
+                              onClick={handleRunEvaluation}
+                              disabled={evaluating}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition-colors cursor-pointer"
                             >
-                              <RefreshCw className="h-2.5 w-2.5 text-cyan-400" />
-                              <span>Reload</span>
+                              <RotateCcw className="h-3 w-3 text-slate-400" />
+                              <span>Re-run</span>
                             </button>
 
-                            {isServerRunning ? (
-                              <button
-                                onClick={handleStopServer}
-                                className="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 border border-rose-800/40 text-[11px] font-mono transition-colors cursor-pointer"
-                                title="Stop Node.js dev server"
-                              >
-                                <Square className="h-2.5 w-2.5 fill-rose-400 text-rose-400" />
-                                <span>Stop Server</span>
-                              </button>
-                            ) : (
-                              <button
-                                onClick={handleStartServer}
-                                disabled={startingServer}
-                                className="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-mono transition-colors cursor-pointer disabled:opacity-50"
-                                title="Start Auth Server on port 5000"
-                              >
-                                <Play className="h-2.5 w-2.5 fill-cyan-300" />
-                                <span>Start Server</span>
-                              </button>
-                            )}
-
-                            {previewUrl && (
-                              <button
-                                onClick={() => {
-                                  const url =
-                                    (previewUrl || "http://localhost:5000") +
-                                    (previewPath === "/" ? "" : previewPath);
-                                  window.open(url, "_blank");
-                                }}
-                                className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors cursor-pointer"
-                                title="Open in new browser tab"
-                              >
-                                <ExternalLink className="h-2.5 w-2.5" />
-                                <span>Open Tab</span>
-                              </button>
-                            )}
+                            <button
+                              onClick={() => setEvalResults(null)}
+                              className="p-1 hover:text-slate-200 text-slate-400 transition-colors"
+                              title="Clear results"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </>
-                        ) : (
+                        ) : activeBottomTab === "terminal" ? (
                           <>
                             <button
-                              onClick={handleRunActiveFile}
-                              disabled={runningCode}
-                              className={`flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-mono transition-colors disabled:opacity-50 ${
-                                isHtmlActive
-                                  ? "bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40"
-                                  : "bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30"
-                              }`}
-                              title={
-                                isHtmlActive
-                                  ? `Preview ${activeFilePath || "HTML"}`
-                                  : `Run ${activeFilePath || "active file"}`
-                              }
+                              onClick={() => {
+                                setTerminalLogs((prev) => [
+                                  ...prev,
+                                  `➜ ${new Date().toLocaleTimeString()} New terminal session`,
+                                ]);
+                              }}
+                              className="p-1 hover:text-slate-200 text-slate-400 transition-colors cursor-pointer"
+                              title="New Terminal"
                             >
-                              {isHtmlActive ? (
-                                <Globe className="h-2.5 w-2.5 text-cyan-300" />
-                              ) : (
-                                <Play className="h-2.5 w-2.5 fill-emerald-300" />
-                              )}
-                              <span>{runButtonLabel}</span>
+                              <Plus className="h-3.5 w-3.5" />
                             </button>
-
-                            <button
-                              onClick={() => handleRunCode("node", ["test.js"])}
-                              disabled={runningCode}
-                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-mono transition-colors disabled:opacity-50"
-                              title="Execute test suite (node test.js)"
-                            >
-                              <Play className="h-2.5 w-2.5 fill-slate-300" />
-                              <span>node test.js</span>
-                            </button>
-
-                            <button
-                              onClick={() => handleRunCode("npm", ["install"])}
-                              disabled={runningCode}
-                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
-                              title="Install npm dependencies"
-                            >
-                              <Plus className="h-2.5 w-2.5" />
-                              <span>npm install</span>
-                            </button>
-
-                            {isServerRunning ? (
-                              <button
-                                onClick={handleStopServer}
-                                className="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 border border-rose-800/40 text-[11px] font-mono transition-colors cursor-pointer"
-                                title="Stop Dev Server"
-                              >
-                                <Square className="h-2.5 w-2.5 fill-rose-400 text-rose-400" />
-                                <span>Stop Server</span>
-                              </button>
-                            ) : (
-                              <button
-                                onClick={handleStartServer}
-                                disabled={startingServer}
-                                className="flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-mono transition-colors disabled:opacity-50"
-                                title="Start project dev server and connect live preview"
-                              >
-                                <Play className="h-2.5 w-2.5 fill-indigo-300" />
-                                <span>Dev Server</span>
-                              </button>
-                            )}
 
                             <button
                               onClick={() => setTerminalLogs([])}
-                              className="p-1 hover:text-slate-300 text-slate-500 rounded transition-colors"
-                              title="Clear console"
+                              className="p-1 hover:text-slate-200 text-slate-400 transition-colors cursor-pointer"
+                              title="Clear terminal"
                             >
-                              <Trash2 className="h-3 w-3" />
+                              <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </>
-                        )}
+                        ) : null}
 
                         {/* Maximize / Minimize toggle */}
                         <button
@@ -1562,9 +1545,9 @@ export default function CodingEnvironment({
                           title={panelExpanded ? "Collapse panel" : "Expand panel"}
                         >
                           {panelExpanded ? (
-                            <Minimize2 className="h-3 w-3" />
+                            <Minimize2 className="h-3.5 w-3.5" />
                           ) : (
-                            <Maximize2 className="h-3 w-3" />
+                            <Maximize2 className="h-3.5 w-3.5" />
                           )}
                         </button>
                       </div>
@@ -1627,6 +1610,58 @@ export default function CodingEnvironment({
                                 Execute
                               </button>
                             </form>
+                          </div>
+                        </div>
+                      )}
+
+                      {activeBottomTab === "evaluation" && (
+                        <div className="flex-1 p-4 overflow-y-auto space-y-3 font-sans select-text bg-[#0c1017]">
+                          {/* Banner */}
+                          <div className="flex items-start gap-3 p-3.5 rounded-xl bg-rose-950/30 border border-rose-800/40">
+                            <XCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+                            <div>
+                              <h3 className="text-sm font-bold text-white">Evaluation failed</h3>
+                              <p className="text-xs text-rose-300/90 mt-0.5">
+                                0 / 4 tests passed. Fix the issues below and try again.
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* List of failed tests matching Screenshot 2 */}
+                          <div className="space-y-2">
+                            {(evalResults?.criteriaStatus || [
+                              {
+                                title: "GET /api/feedback responds with HTTP status 200",
+                                feedback: "The server fails to start due to a ReferenceError/SyntaxError in backend/src/models/Feedback.js at line 12: 'res' is not defined at the top level."
+                              },
+                              {
+                                title: "Response body is an array of feedback documents",
+                                feedback: "Unable to verify because the application crashes on startup."
+                              },
+                              {
+                                title: "Each feedback item contains title, description, category, and votes",
+                                feedback: "Unable to verify because the application crashes on startup."
+                              },
+                              {
+                                title: "Feedback items are sorted in descending order",
+                                feedback: "Unable to verify because the application crashes on startup."
+                              }
+                            ]).map((crit, idx) => (
+                              <div
+                                key={idx}
+                                className="p-3 rounded-xl bg-[#111622] border border-slate-800/80 space-y-1"
+                              >
+                                <div className="flex items-center gap-2 text-xs font-semibold text-rose-400 font-mono">
+                                  <X className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+                                  <span>[FAILED] {crit.title}</span>
+                                </div>
+                                {crit.feedback && (
+                                  <p className="text-[11px] text-slate-400 pl-5.5 font-mono leading-relaxed">
+                                    {crit.feedback}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
                           </div>
                         </div>
                       )}

@@ -10,6 +10,10 @@ import {
   Maximize2,
   Minimize2,
   Lightbulb,
+  Sparkles,
+  Copy,
+  ChevronRight,
+  XCircle,
 } from "lucide-react";
 import { readProjectFile, writeProjectFile } from "@/lib/webcontainer";
 
@@ -26,6 +30,7 @@ export interface EditorHint {
   endLine: number;
   hint: string;
   concept?: string;
+  isError?: boolean;
 }
 
 interface CodeEditorProps {

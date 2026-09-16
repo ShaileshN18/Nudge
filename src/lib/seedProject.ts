@@ -1007,7 +1007,7 @@ export const feedbackBoardSeedProject: SeedProject = {
       description:
         "Connect the feedback list to the database by implementing the GET /api/feedback route handler. The endpoint must retrieve all saved feedback entries from the database and return them as a JSON array.",
       goal: "Fetch and return all stored feedback items from the database in descending order.",
-      targetFiles: ["backend/src/routes/feedback.js", "backend/src/models/Feedback.js"],
+      targetFiles: ["backend/src/feedback.js", "backend/src/routes.js"],
       evaluationCriteria: [
         "GET /api/feedback responds with HTTP status 200",
         "Response body is an array of feedback documents",
@@ -1021,7 +1021,7 @@ export const feedbackBoardSeedProject: SeedProject = {
       description:
         "Enable users to submit new ideas and issues by implementing the POST /api/feedback route handler. Validate incoming payload fields, create a new document in the database with initial zero votes, and respond with the created record.",
       goal: "Validate request body, create a new feedback item in MongoDB, and return it with HTTP status 201.",
-      targetFiles: ["backend/src/routes/feedback.js", "backend/src/models/Feedback.js"],
+      targetFiles: ["backend/src/feedback.js", "backend/src/models/Feedback.js"],
       evaluationCriteria: [
         "POST /api/feedback responds with HTTP status 201 on valid submission",
         "Response body contains the newly created feedback object with an _id",
@@ -1035,12 +1035,38 @@ export const feedbackBoardSeedProject: SeedProject = {
       description:
         "Allow users to upvote feedback submissions by implementing the POST /api/feedback/:id/upvote route handler. Extract the item ID parameter, increment the vote counter by 1, persist the change, and return the updated document.",
       goal: "Increment the vote tally of a target feedback document and return the updated record.",
-      targetFiles: ["backend/src/routes/feedback.js", "backend/src/models/Feedback.js"],
+      targetFiles: ["backend/src/feedback.js", "backend/src/models/Feedback.js"],
       evaluationCriteria: [
         "POST /api/feedback/:id/upvote responds with HTTP status 200",
         "Increments the votes field of the target item by exactly 1",
         "Returns the updated feedback object in the response",
         "Responds with HTTP status 404 if the feedback :id does not exist",
+      ],
+    },
+    {
+      order: 4,
+      title: "Filter & Sort Feedback Items",
+      description:
+        "Enhance GET /api/feedback with query parameter support for category filtering and custom sorting by date or vote count.",
+      goal: "Support query parameters ?category=&sort= in the GET /api/feedback endpoint.",
+      targetFiles: ["backend/src/feedback.js"],
+      evaluationCriteria: [
+        "Filtering by ?category=bug returns only bug feedback documents",
+        "Sorting by ?sort=votes orders items by highest votes first",
+        "Invalid category parameters return a graceful fallback",
+      ],
+    },
+    {
+      order: 5,
+      title: "Connect Frontend & Live Validation",
+      description:
+        "Ensure the interactive client UI communicates with the backend endpoints properly with real-time feedback submissions and upvotes.",
+      goal: "Verify end-to-end integration between client interface and backend API routes.",
+      targetFiles: ["frontend/index.html", "backend/src/feedback.js"],
+      evaluationCriteria: [
+        "Frontend renders database feedback items upon page load",
+        "Form submission adds new feedback without full page reload",
+        "Upvote button increments vote counter in real time",
       ],
     },
   ],
@@ -1105,12 +1131,12 @@ MONGODB_URI=mongodb://localhost:27017/feedback_board
 const cors = require('cors');
 const path = require('path');
 const dotenv = require('dotenv');
-const feedbackRoutes = require('./routes/feedback');
+const feedbackRoutes = require('./feedback');
 
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 
 // Enable CORS for client requests
 app.use(cors());
@@ -1146,8 +1172,7 @@ app.get('*', (req, res) => {
 
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(\`🚀 Feedback Board Server running at http://localhost:\${PORT}\`);
-    console.log(\`📖 Live Preview available at http://localhost:\${PORT}\`);
+    console.log(\`Server running at http://localhost:\${PORT}\`);
   });
 }
 
@@ -1155,6 +1180,80 @@ module.exports = app;
 `,
       visible: true,
       editable: true,
+    },
+    {
+      path: "backend/src/feedback.js",
+      content: `const express = require('express');
+const router = express.Router();
+const Feedback = require('./models/Feedback');
+
+/**
+ * GET /api/feedback
+ * Task 1: Retrieve all feedback items
+ *
+ * Expected behavior:
+ * - Query the database for all feedback entries.
+ * - Sort the items so the highest votes or newest entries appear first.
+ * - Respond with HTTP status 200 and a JSON array of feedback objects.
+ */
+router.get('/', async (req, res) => {
+  try {
+    // TODO: implement this route
+    const feedback = await Feedback.find().sort({ createdAt: -1 });
+    res.status(200).json(feedback);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router;
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "backend/src/routes.js",
+      content: `const express = require('express');
+const router = express.Router();
+const feedbackRoutes = require('./feedback');
+
+router.use('/feedback', feedbackRoutes);
+
+module.exports = router;
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "frontend/package.json",
+      content: `{
+  "name": "feedback-board-frontend",
+  "version": "1.0.0",
+  "private": true
+}
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "frontend/README.md",
+      content: `# Feedback Board Frontend
+
+The client-side feedback portal built with semantic HTML, CSS3 variables, and vanilla JavaScript.
+`,
+      visible: true,
+      editable: true,
+    },
+    {
+      path: "backend/src/routes/feedback.js",
+      content: `const express = require('express');
+const router = express.Router();
+const feedbackModule = require('../feedback');
+
+module.exports = feedbackModule;
+`,
+      visible: false,
+      editable: false,
     },
     {
       path: "backend/src/models/Feedback.js",
@@ -1340,95 +1439,7 @@ module.exports = Feedback;
       visible: true,
       editable: true,
     },
-    {
-      path: "backend/src/routes/feedback.js",
-      content: `const express = require('express');
-const router = express.Router();
-const Feedback = require('../models/Feedback');
 
-/**
- * GET /api/feedback
- * Task 1: Retrieve all feedback items
- *
- * Expected behavior:
- * - Query the database for all feedback entries.
- * - Sort the items so the highest votes or newest entries appear first.
- * - Respond with HTTP status 200 and a JSON array of feedback objects.
- */
-router.get('/', async (req, res) => {
-  try {
-    // TODO: Task 1 - Retrieve all feedback documents from the database.
-    // Query the database, sort the items, and return the array with HTTP 200.
-
-    res.status(501).json({
-      error: 'Not Implemented',
-      message: 'TODO: Implement GET /api/feedback in backend/src/routes/feedback.js'
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/feedback
- * Task 2: Create a new feedback item
- *
- * Expected behavior:
- * - Extract title, description, and optional category from req.body.
- * - Validate that title and description are present and not empty.
- * - If validation fails, respond with HTTP status 400 Bad Request.
- * - Create a new feedback document in the database with votes initialized to 0.
- * - Respond with HTTP status 201 Created and the newly created feedback object.
- */
-router.post('/', async (req, res) => {
-  try {
-    const { title, description, category } = req.body;
-
-    // TODO: Task 2 - Validate required fields (title, description).
-    // If validation fails, return HTTP 400 Bad Request.
-    // Otherwise, create and save the new feedback item, and respond with HTTP 201 Created.
-
-    res.status(501).json({
-      error: 'Not Implemented',
-      message: 'TODO: Implement POST /api/feedback in backend/src/routes/feedback.js'
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/feedback/:id/upvote
- * Task 3: Upvote an existing feedback item
- *
- * Expected behavior:
- * - Extract the feedback ID from req.params.id.
- * - Find the feedback document in the database.
- * - If no document is found with that ID, respond with HTTP status 404 Not Found.
- * - If found, increment its votes count by 1 and save the update.
- * - Respond with HTTP status 200 OK and the updated feedback document.
- */
-router.post('/:id/upvote', async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // TODO: Task 3 - Find feedback by ID, increment votes by 1, and persist changes.
-    // If not found, return HTTP 404. Otherwise, return HTTP 200 with updated document.
-
-    res.status(501).json({
-      error: 'Not Implemented',
-      message: 'TODO: Implement POST /api/feedback/:id/upvote in backend/src/routes/feedback.js'
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-module.exports = router;
-`,
-      visible: true,
-      editable: true,
-    },
     {
       path: "frontend/index.html",
       content: `<!DOCTYPE html>

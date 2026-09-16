@@ -13,6 +13,7 @@
     "@monaco-editor/react": "^4.7.0",
     "@webcontainer/api": "^1.6.4",
     "bcryptjs": "^3.0.3",
+    "better-auth": "^1.7.4",
     "dotenv": "^16.4.7",
     "jose": "^6.2.12",
     "jsonwebtoken": "^9.0.3",

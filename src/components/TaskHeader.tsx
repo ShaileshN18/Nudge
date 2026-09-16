@@ -105,187 +105,78 @@ export default function TaskHeader({
   };
 
   return (
-    <div className="w-full h-full bg-[#0c101b] flex flex-col overflow-hidden select-none">
-      {/* ── Top Bar: Navigation, Badges, Title & Actions ── */}
-      <div className="px-4 py-2.5 bg-[#090d16] border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3 shrink-0">
-        {/* Left: Task order, difficulty, passed badge, title */}
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="flex items-center bg-[#131826] border border-slate-800 rounded-lg p-0.5 shrink-0">
+    <div className="w-full h-full bg-[#0d1117] flex flex-col overflow-hidden select-none border-b border-slate-800/80">
+      {/* ── Top Bar: Navigation, In Progress Badge & Actions ── */}
+      <div className="px-5 py-2.5 bg-[#0b0f15] border-b border-slate-800/80 flex items-center justify-between gap-3 shrink-0">
+        {/* Left: ← Task 1 of 5 < > [In progress] */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onPrevTask}
+            disabled={currentIndex <= 0}
+            className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Previous Task"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+
+          <span className="text-xs font-medium text-slate-300">
+            Task {currentIndex + 1} of {totalTasks || 5}
+          </span>
+
+          <div className="flex items-center gap-1">
             <button
               onClick={onPrevTask}
               disabled={currentIndex <= 0}
-              className="p-1 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              title="Previous Task"
+              className="p-0.5 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Previous"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
-            <span className="text-[11px] font-mono text-slate-400 px-1.5 font-semibold">
-              {currentIndex + 1} / {totalTasks || 1}
-            </span>
             <button
               onClick={onNextTask}
               disabled={currentIndex >= totalTasks - 1}
-              className="p-1 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              title="Next Task"
+              className="p-0.5 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Next"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
 
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 shrink-0">
-            {difficulty}
+          <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-950/40 text-emerald-400 border border-emerald-500/30 shrink-0">
+            {taskCompleted ? "Completed" : "In progress"}
           </span>
-
-          {taskCompleted && (
-            <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0">
-              <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-              Passed
-            </span>
-          )}
-
-          <h1 className="text-sm font-bold text-white tracking-tight truncate max-w-sm sm:max-w-md md:max-w-lg">
-            {currentTask.title || "Task Instructions"}
-          </h1>
         </div>
 
-        {/* Right: Actions (View mode, Run Code, Start Server, Evaluate) */}
-        <div className="flex items-center gap-2 shrink-0">
-          {onChangeViewMode && (
-            <div className="flex items-center bg-[#131826] border border-slate-800 rounded-lg p-0.5 text-xs">
-              <button
-                onClick={() => onChangeViewMode("code")}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md transition-all cursor-pointer ${
-                  viewMode === "code"
-                    ? "bg-slate-800 text-white font-semibold shadow-sm"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-                title="Code Editor View"
-              >
-                <Code className="h-3 w-3" />
-                <span className="hidden sm:inline">Code</span>
-              </button>
-              <button
-                onClick={() => {
-                  onChangeViewMode("split");
-                  if (!isServerRunning && onStartServer) onStartServer();
-                }}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md transition-all cursor-pointer ${
-                  viewMode === "split"
-                    ? "bg-indigo-600 text-white font-semibold shadow-sm"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-                title="Side-by-Side Split View"
-              >
-                <Columns className="h-3 w-3" />
-                <span className="hidden sm:inline">Split</span>
-              </button>
-              <button
-                onClick={() => {
-                  onChangeViewMode("preview");
-                  if (!isServerRunning && onStartServer) onStartServer();
-                }}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md transition-all cursor-pointer ${
-                  viewMode === "preview"
-                    ? "bg-cyan-600 text-white font-semibold shadow-sm"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-                title="Full Canvas Live Preview"
-              >
-                <Globe className="h-3 w-3" />
-                <span className="hidden sm:inline">Preview</span>
-                {isServerRunning && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                )}
-              </button>
-            </div>
-          )}
-
-          {onRunCode && (
-            <button
-              onClick={onRunCode}
-              disabled={runningCode}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-white text-xs font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50 ${
-                runButtonType === "html"
-                  ? "bg-cyan-600 hover:bg-cyan-500 shadow-cyan-600/25"
-                  : "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/25"
-              }`}
-              title={
-                runButtonType === "html"
-                  ? "Preview HTML in live browser canvas"
-                  : `Run ${runButtonLabel || "code"} in WebContainer`
-              }
-            >
-              {runningCode ? (
-                <>
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                  <span className="hidden sm:inline">Running...</span>
-                </>
-              ) : runButtonType === "html" ? (
-                <>
-                  <Globe className="h-3 w-3" />
-                  <span>{runButtonLabel || "Preview HTML"}</span>
-                </>
-              ) : (
-                <>
-                  <Play className="h-3 w-3 fill-white" />
-                  <span>{runButtonLabel || "Run"}</span>
-                </>
-              )}
-            </button>
-          )}
-
+        {/* Right: Open Preview ↗, Evaluate */}
+        <div className="flex items-center gap-2.5 shrink-0">
           {onStartServer && (
             <button
               onClick={onStartServer}
               disabled={startingServer}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50 ${
-                isServerRunning
-                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30"
-                  : "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 hover:border-slate-600"
-              }`}
-              title={
-                isServerRunning
-                  ? "Auth Server running - Click to open Live Preview"
-                  : "Start Node.js server and view Live Preview"
-              }
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141a24] hover:bg-slate-800 text-slate-200 border border-slate-700/60 text-xs font-medium shadow-sm transition-all cursor-pointer"
+              title="Open Live Preview in new tab"
             >
-              {startingServer ? (
-                <>
-                  <RefreshCw className="h-3 w-3 animate-spin text-cyan-400" />
-                  <span className="hidden sm:inline">Starting...</span>
-                </>
-              ) : isServerRunning ? (
-                <>
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                  </span>
-                  <Globe className="h-3 w-3 text-cyan-400" />
-                  <span className="hidden sm:inline">Preview</span>
-                </>
-              ) : (
-                <>
-                  <Globe className="h-3 w-3 text-slate-400" />
-                  <span className="hidden sm:inline">Server</span>
-                </>
-              )}
+              <span>Open Preview</span>
+              <svg className="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
             </button>
           )}
 
           <button
             onClick={onRunEvaluation}
             disabled={evaluating}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50"
-            title="Run tests and evaluate task criteria"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#2dd4bf] hover:bg-[#14b8a6] text-slate-950 text-xs font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+            title="Evaluate solution against test cases"
           >
             {evaluating ? (
               <>
-                <RefreshCw className="h-3 w-3 animate-spin" />
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-950" />
                 <span>Evaluating...</span>
               </>
             ) : (
               <>
-                <CheckCircle2 className="h-3 w-3" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-slate-950" />
                 <span>Evaluate</span>
               </>
             )}
@@ -293,29 +184,26 @@ export default function TaskHeader({
         </div>
       </div>
 
-      {/* ── Scrollable Resizable Question & Task Body ── */}
-      <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3.5 text-slate-200">
-        {/* Description & Target Files Header Row */}
-        <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
-          {/* Main Description */}
-          <div className="space-y-1.5 max-w-3xl flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">
-                Question / Problem Statement
-              </span>
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
+      {/* ── Main Task Title, Description & Files You'll Work With ── */}
+      <div className="flex-1 overflow-y-auto px-6 py-4 bg-[#0c1017] space-y-4">
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
+          {/* Left: Big Title and Description */}
+          <div className="space-y-2 max-w-2xl flex-1">
+            <h1 className="text-xl font-bold text-white tracking-tight">
+              {currentTask.title || "Implement GET /api/feedback"}
+            </h1>
+            <p className="text-xs text-slate-400 leading-relaxed">
               {currentTask.description ||
-                "Complete the coding requirements for this task to pass the evaluation criteria."}
+                "Connect the feedback list to the database by implementing the GET /api/feedback route handler. The endpoint must retrieve all saved feedback entries from the database and return them as a JSON array."}
             </p>
           </div>
 
-          {/* Files you'll work with */}
-          <div className="shrink-0 space-y-1">
+          {/* Right: Files you'll work with */}
+          <div className="shrink-0 space-y-1.5 min-w-[170px]">
             <div className="text-[11px] font-medium text-slate-400">
-              Files you&apos;ll work with:
+              Files you&apos;ll work with
             </div>
-            <div className="flex items-center flex-wrap gap-1.5">
+            <div className="flex flex-col gap-1.5">
               {targetFiles.map((file) => {
                 const basename = file.split("/").pop() || file;
                 const badge = getFileBadgeColor(basename);
@@ -326,19 +214,19 @@ export default function TaskHeader({
                   <button
                     key={file}
                     onClick={() => onSelectFile(file)}
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono transition-all border cursor-pointer ${
+                    className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs font-mono transition-all text-left cursor-pointer ${
                       isActive
-                        ? "bg-slate-800 border-indigo-500/60 text-white shadow-sm ring-1 ring-indigo-500/20"
-                        : "bg-[#131826] border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white"
+                        ? "bg-slate-800/90 text-white font-medium shadow-sm border border-slate-700"
+                        : "bg-[#141a24] text-slate-300 hover:text-white hover:bg-slate-800/60 border border-slate-800/80"
                     }`}
                     title={`Open ${file}`}
                   >
                     <span
-                      className={`text-[9px] font-bold px-1 rounded ${badge.bg} ${badge.text}`}
+                      className={`text-[9px] font-bold px-1 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono`}
                     >
-                      {badge.label}
+                      JS
                     </span>
-                    <span>{basename}</span>
+                    <span className="truncate">{basename}</span>
                   </button>
                 );
               })}

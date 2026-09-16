@@ -100,41 +100,53 @@ function getFileIcon(name: string) {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   switch (ext) {
     case "json":
-      return <FileJson className="h-4 w-4 text-amber-400 shrink-0" />;
+      return (
+        <span className="text-[10px] font-mono font-bold text-slate-300 shrink-0 leading-none">
+          &#123;&#125;
+        </span>
+      );
     case "js":
     case "jsx":
     case "mjs":
     case "cjs":
       return (
-        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-yellow-400/15 text-yellow-300 border border-yellow-500/30 shrink-0 leading-none">
+        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-yellow-400/20 text-yellow-300 border border-yellow-500/30 shrink-0 leading-none">
           JS
         </span>
       );
     case "ts":
     case "tsx":
       return (
-        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-cyan-400/15 text-cyan-300 border border-cyan-500/30 shrink-0 leading-none">
+        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-cyan-400/20 text-cyan-300 border border-cyan-500/30 shrink-0 leading-none">
           TS
         </span>
       );
     case "css":
     case "scss":
     case "less":
-      return <FileCode className="h-4 w-4 text-purple-400 shrink-0" />;
+      return <FileCode className="h-3.5 w-3.5 text-purple-400 shrink-0" />;
     case "html":
-      return <FileCode className="h-4 w-4 text-orange-400 shrink-0" />;
+      return (
+        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-orange-600/30 text-orange-400 border border-orange-500/30 shrink-0 leading-none">
+          5
+        </span>
+      );
     case "md":
     case "mdx":
-      return <FileText className="h-4 w-4 text-slate-300 shrink-0" />;
+      return (
+        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-slate-700/60 text-slate-300 border border-slate-600/50 shrink-0 leading-none">
+          M
+        </span>
+      );
     case "svg":
     case "png":
     case "jpg":
     case "jpeg":
     case "gif":
     case "ico":
-      return <File className="h-4 w-4 text-pink-400 shrink-0" />;
+      return <File className="h-3.5 w-3.5 text-pink-400 shrink-0" />;
     default:
-      return <FileText className="h-4 w-4 text-slate-400 shrink-0" />;
+      return <FileText className="h-3.5 w-3.5 text-slate-400 shrink-0" />;
   }
 }
 
@@ -426,9 +438,9 @@ function TreeNodeRow({
               <ChevronRight className="h-3.5 w-3.5 text-slate-500 shrink-0" />
             )}
             {isOpen ? (
-              <FolderOpen className="h-4 w-4 text-indigo-400 shrink-0" />
+              <FolderOpen className="h-4 w-4 text-sky-400 fill-sky-400/20 shrink-0" />
             ) : (
-              <FolderClosed className="h-4 w-4 text-indigo-400/70 shrink-0" />
+              <FolderClosed className="h-4 w-4 text-sky-400/80 fill-sky-400/10 shrink-0" />
             )}
             <span className="truncate text-slate-300 group-hover:text-white">
               {node.name}
@@ -526,10 +538,10 @@ function TreeNodeRow({
     <div
       onContextMenu={(e) => onContextMenu(e, node)}
       onClick={() => onSelectFile(node.path)}
-      className={`w-full flex items-center justify-between py-[5px] pr-2 text-xs font-mono transition-all rounded cursor-pointer group ${
+      className={`w-full flex items-center justify-between py-[5px] pr-2 text-xs font-mono transition-all rounded-md cursor-pointer group ${
         isActive
-          ? "bg-[#172033] text-white font-medium shadow-sm border border-slate-700/60"
-          : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent"
+          ? "bg-[#161d2a] text-white font-medium shadow-sm"
+          : "text-slate-400 hover:bg-slate-800/40 hover:text-slate-200"
       }`}
       style={{ paddingLeft: `${depth * 14 + 20}px` }}
     >
@@ -538,9 +550,7 @@ function TreeNodeRow({
         <span className="truncate">{node.name}</span>
       </div>
 
-      {isActive && (
-        <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0 ml-1.5 shadow-[0_0_8px_rgba(251,191,36,0.8)]" />
-      )}
+
 
       {isCore ? (
         <div
