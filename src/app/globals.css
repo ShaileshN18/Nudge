@@ -125,4 +125,23 @@ body {
   margin: 4px auto !important;
 }
 
+/* Subtle modern developer grid pattern */
+.bg-developer-grid {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+.bg-radial-gradient {
+  background: radial-gradient(circle at 50% 0%, rgba(94, 234, 212, 0.12) 0%, transparent 70%);
+}
+
+.text-gradient-mint {
+  background: linear-gradient(135deg, #ffffff 20%, #a7f3d0 60%, #5eead4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+
 
