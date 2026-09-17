@@ -1133,9 +1133,9 @@ export default function CodingEnvironment({
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#080C0D] text-[#F4F7F6] overflow-hidden font-sans select-none">
-      {/* ── Top Bar / Header: CodeLearn Branding, Nav & User Avatar (Search & Theme toggle removed per DESIGN.md & Screenshot 1) ── */}
+      {/* ── Top Bar / Header: Nudge Branding, Nav & User Avatar (Search & Theme toggle removed per DESIGN.md & Screenshot 1) ── */}
       <header className="h-12 bg-[#080C0D] border-b border-[#202A2C] px-4 flex items-center justify-between shrink-0 z-20">
-        {/* Left: Stylized Glyph, CodeLearn Title, Links */}
+        {/* Left: Stylized Glyph, Nudge Title, Links */}
         <div className="flex items-center gap-6">
           <Link href="/" className="flex items-center gap-2.5 group">
             <div className="flex items-center justify-center text-[#67D6B2]">
@@ -1145,7 +1145,7 @@ export default function CodingEnvironment({
               </svg>
             </div>
             <span className="font-bold text-sm tracking-tight text-[#F4F7F6] group-hover:text-[#67D6B2] transition-colors">
-              CodeLearn
+              Nudge
             </span>
           </Link>
 
