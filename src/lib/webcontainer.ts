@@ -4,11 +4,31 @@ import {
   type WebContainerProcess,
 } from "@webcontainer/api";
 
+export type ServerLifecycleStatus = "idle" | "starting" | "running" | "error";
+
+export interface DevServerState {
+  status: ServerLifecycleStatus;
+  port: number | null;
+  url: string | null;
+  error: string | null;
+  commandUsed: string | null;
+}
+
 declare global {
   // eslint-disable-next-line no-var
   var __webcontainerPromise: Promise<WebContainer> | undefined;
   // eslint-disable-next-line no-var
   var __webcontainerInstance: WebContainer | undefined;
+  // eslint-disable-next-line no-var
+  var __nudgeDevServerState: DevServerState | undefined;
+  // eslint-disable-next-line no-var
+  var __nudgeDevServerProcess: WebContainerProcess | undefined;
+  // eslint-disable-next-line no-var
+  var __nudgeDevServerUnsubscribe: (() => void) | undefined;
+  // eslint-disable-next-line no-var
+  var __nudgeDevServerStartPromise: Promise<DevServerState> | undefined;
+  // eslint-disable-next-line no-var
+  var __nudgeDevServerListeners: Set<(state: DevServerState) => void> | undefined;
 }
 
 export interface ProjectFileItem {
@@ -165,14 +185,18 @@ export async function spawnProcess(
   const process = await webcontainer.spawn(command, args);
 
   if (options?.output || options?.terminal) {
-    process.output.pipeTo(
-      new WritableStream({
-        write(chunk) {
-          options.output?.(chunk);
-          options.terminal?.write(chunk);
-        },
-      })
-    );
+    process.output
+      .pipeTo(
+        new WritableStream({
+          write(chunk) {
+            options.output?.(chunk);
+            options.terminal?.write(chunk);
+          },
+        })
+      )
+      .catch(() => {
+        // Stream aborted/closed when process exits; ignore error
+      });
   }
 
   return process;
@@ -207,7 +231,7 @@ export async function ensureStaticServerFile(): Promise<string> {
 const fs = require('fs');
 const path = require('path');
 
-const PORT = process.env.PORT || 0;
+const PORT = process.env.PORT || 5000;
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.htm': 'text/html; charset=utf-8',
@@ -367,49 +391,288 @@ export async function detectServerCommand(): Promise<DetectedServerCommand> {
   };
 }
 
-/**
- * Starts the project's dev server and listens for WebContainer's 'server-ready' event.
- * Obtains the live preview URL dynamically (does not assume localhost).
- */
-export async function startDevServer(options: DevServerOptions = {}): Promise<{
-  process: WebContainerProcess;
-  urlPromise: Promise<{ port: number; url: string }>;
-  commandUsed: string;
-}> {
-  const webcontainer = await getWebContainer();
-  
-  let command = options.command;
-  let args = options.args;
-  let commandDescription = "";
+function getDevServerListeners(): Set<(state: DevServerState) => void> {
+  if (!globalThis.__nudgeDevServerListeners) {
+    globalThis.__nudgeDevServerListeners = new Set();
+  }
+  return globalThis.__nudgeDevServerListeners;
+}
 
-  if (!command) {
-    const detected = await detectServerCommand();
-    command = detected.command;
-    args = detected.args;
-    commandDescription = detected.description;
-  } else {
-    commandDescription = `${command} ${(args || []).join(" ")}`.trim();
+export function getDevServerState(): DevServerState {
+  if (!globalThis.__nudgeDevServerState) {
+    globalThis.__nudgeDevServerState = {
+      status: "idle",
+      port: null,
+      url: null,
+      error: null,
+      commandUsed: null,
+    };
+  }
+  return globalThis.__nudgeDevServerState;
+}
+
+function setDevServerState(nextState: DevServerState): void {
+  globalThis.__nudgeDevServerState = nextState;
+  const listeners = getDevServerListeners();
+  for (const listener of listeners) {
+    try {
+      listener(nextState);
+    } catch (err) {
+      console.error("Error in DevServer listener:", err);
+    }
+  }
+}
+
+export function subscribeDevServer(
+  listener: (state: DevServerState) => void
+): () => void {
+  const listeners = getDevServerListeners();
+  listeners.add(listener);
+  try {
+    listener(getDevServerState());
+  } catch (err) {
+    console.error("Error invoking DevServer subscriber:", err);
+  }
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * Cleanly stops the active dev server, ensuring the process terminates
+ * and network ports are fully released.
+ */
+export async function stopDevServer(): Promise<void> {
+  const currentProcess = globalThis.__nudgeDevServerProcess;
+  const unsubscribe = globalThis.__nudgeDevServerUnsubscribe;
+
+  if (unsubscribe) {
+    try {
+      unsubscribe();
+    } catch {}
+    globalThis.__nudgeDevServerUnsubscribe = undefined;
   }
 
-  let resolveServerUrl: (val: { port: number; url: string }) => void;
-  const urlPromise = new Promise<{ port: number; url: string }>((resolve) => {
-    resolveServerUrl = resolve;
-  });
+  if (currentProcess) {
+    try {
+      currentProcess.kill();
+      await Promise.race([
+        currentProcess.exit,
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    } catch {}
+    globalThis.__nudgeDevServerProcess = undefined;
+  }
 
-  const unsubscribe = webcontainer.on("server-ready", (port, url) => {
-    options.onServerReady?.(port, url);
-    resolveServerUrl({ port, url });
+  globalThis.__nudgeDevServerStartPromise = undefined;
+  setDevServerState({
+    status: "idle",
+    port: null,
+    url: null,
+    error: null,
+    commandUsed: null,
   });
+}
 
-  const process = await spawnProcess(command, args || [], {
-    output: options.onOutput,
-  });
+/**
+ * Starts the project's dev server and listens for WebContainer's 'server-ready' event.
+ * Follows the authoritative lifecycle: idle -> starting -> running / error.
+ * Prevents multiple concurrent processes and returns in-flight promises.
+ */
+export async function startDevServer(
+  options: DevServerOptions = {}
+): Promise<DevServerState> {
+  const currentState = getDevServerState();
 
-  process.exit.then(() => {
-    unsubscribe();
-  });
+  // 1. If server is already running with an active URL, return immediately (idempotent)
+  if (currentState.status === "running" && currentState.url) {
+    options.onServerReady?.(currentState.port || 0, currentState.url);
+    return currentState;
+  }
 
-  return { process, urlPromise, commandUsed: commandDescription };
+  // 2. If server startup is already in flight, return existing promise (prevents duplicate start / double clicks)
+  if (globalThis.__nudgeDevServerStartPromise) {
+    return globalThis.__nudgeDevServerStartPromise;
+  }
+
+  // 3. Initiate single authoritative startup
+  const startPromise = (async (): Promise<DevServerState> => {
+    // If a stale process reference exists, terminate it cleanly first
+    if (globalThis.__nudgeDevServerProcess) {
+      await stopDevServer();
+    }
+
+    setDevServerState({
+      status: "starting",
+      port: null,
+      url: null,
+      error: null,
+      commandUsed: null,
+    });
+
+    const webcontainer = await getWebContainer();
+
+    // Command resolution
+    let command = options.command;
+    let args = options.args;
+    let commandDescription = "";
+
+    if (!command) {
+      const detected = await detectServerCommand();
+      command = detected.command;
+      args = detected.args;
+      commandDescription = detected.description;
+    } else {
+      commandDescription = `${command} ${(args || []).join(" ")}`.trim();
+    }
+
+    setDevServerState({
+      status: "starting",
+      port: null,
+      url: null,
+      error: null,
+      commandUsed: commandDescription,
+    });
+
+    options.onOutput?.(`➜ ${commandDescription}\n⚡ [WebContainer] Starting ${commandDescription}...\n`);
+
+    // Check if npm install is needed
+    if (
+      command === "npm" ||
+      (command === "node" && args?.[0]?.includes("server"))
+    ) {
+      let hasNodeModules = false;
+      try {
+        const entries = await webcontainer.fs.readdir(".", { withFileTypes: true });
+        hasNodeModules = entries.some(
+          (e: any) => (typeof e === "string" ? e : e.name) === "node_modules"
+        );
+      } catch {
+        hasNodeModules = false;
+      }
+
+      if (!hasNodeModules) {
+        options.onOutput?.("📦 Installing project dependencies (npm install)...\n");
+        const installProc = await spawnProcess("npm", ["install"], {
+          output: options.onOutput,
+        });
+        const installExitCode = await installProc.exit;
+        if (installExitCode !== 0) {
+          const errMessage = `Dependency installation (npm install) failed with exit code ${installExitCode}`;
+          options.onOutput?.(`❌ ${errMessage}\n`);
+          const failedState: DevServerState = {
+            status: "error",
+            port: null,
+            url: null,
+            error: errMessage,
+            commandUsed: commandDescription,
+          };
+          setDevServerState(failedState);
+          throw new Error(errMessage);
+        }
+        options.onOutput?.("✔ Dependencies ready.\n");
+      }
+    }
+
+    // Set up server-ready listener BEFORE spawning the process
+    let resolveServerReady: (state: DevServerState) => void;
+    let rejectServerReady: (err: Error) => void;
+    const readyPromise = new Promise<DevServerState>((resolve, reject) => {
+      resolveServerReady = resolve;
+      rejectServerReady = reject;
+    });
+
+    if (globalThis.__nudgeDevServerUnsubscribe) {
+      try {
+        globalThis.__nudgeDevServerUnsubscribe();
+      } catch {}
+      globalThis.__nudgeDevServerUnsubscribe = undefined;
+    }
+
+    const unsubscribe = webcontainer.on("server-ready", (port, url) => {
+      const readyState: DevServerState = {
+        status: "running",
+        port,
+        url,
+        error: null,
+        commandUsed: commandDescription,
+      };
+      setDevServerState(readyState);
+      options.onServerReady?.(port, url);
+      options.onOutput?.(
+        `✔ [WebContainer] Dev Server Ready! Listening on port ${port}\n🌐 Live Preview URL: ${url}\n`
+      );
+      resolveServerReady(readyState);
+    });
+    globalThis.__nudgeDevServerUnsubscribe = unsubscribe;
+
+    // Spawn server process
+    const proc = await spawnProcess(command, args || [], {
+      output: options.onOutput,
+    });
+    globalThis.__nudgeDevServerProcess = proc;
+
+    // Attach exit handler
+    proc.exit.then((code) => {
+      if (globalThis.__nudgeDevServerProcess !== proc) return;
+
+      globalThis.__nudgeDevServerProcess = undefined;
+      if (globalThis.__nudgeDevServerUnsubscribe) {
+        try {
+          globalThis.__nudgeDevServerUnsubscribe();
+        } catch {}
+        globalThis.__nudgeDevServerUnsubscribe = undefined;
+      }
+
+      const wasRunning = getDevServerState().status === "running";
+      const errorMsg = wasRunning
+        ? (code === 0 ? null : `Dev server stopped (code ${code})`)
+        : `Dev server exited before becoming ready (code ${code}). See terminal output.`;
+
+      const exitStatus: ServerLifecycleStatus = wasRunning
+        ? (code === 0 ? "idle" : "error")
+        : "error";
+
+      setDevServerState({
+        status: exitStatus,
+        port: null,
+        url: null,
+        error: errorMsg,
+        commandUsed: commandDescription,
+      });
+
+      options.onOutput?.(
+        wasRunning
+          ? `ℹ Server process exited with code ${code}\n`
+          : `❌ Server exited before becoming ready (code ${code}). See process output above.\n`
+      );
+
+      if (!wasRunning) {
+        rejectServerReady(new Error(errorMsg || `Server process exited with code ${code}`));
+      }
+    });
+
+    return await readyPromise;
+  })();
+
+  globalThis.__nudgeDevServerStartPromise = startPromise;
+
+  try {
+    return await startPromise;
+  } finally {
+    globalThis.__nudgeDevServerStartPromise = undefined;
+  }
+}
+
+/**
+ * Restarts the project's dev server by gracefully terminating the running process,
+ * releasing all ports, and starting a fresh server instance.
+ */
+export async function restartDevServer(
+  options: DevServerOptions = {}
+): Promise<DevServerState> {
+  await stopDevServer();
+  return await startDevServer(options);
 }
 
 /**

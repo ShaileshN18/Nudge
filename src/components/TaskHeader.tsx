@@ -50,6 +50,7 @@ interface TaskHeaderProps {
   isServerRunning?: boolean;
   startingServer?: boolean;
   previewUrl?: string | null;
+  serverPort?: number | null;
   viewMode?: "code" | "split" | "preview";
   onChangeViewMode?: (mode: "code" | "split" | "preview") => void;
   evalResults?: {
@@ -79,6 +80,7 @@ export default function TaskHeader({
   isServerRunning = false,
   startingServer = false,
   previewUrl,
+  serverPort,
   viewMode = "code",
   onChangeViewMode,
   evalResults,
@@ -172,7 +174,8 @@ export default function TaskHeader({
               onClick={() => {
                 if (previewUrl) {
                   // Server is already running — open preview page in new tab with URL immediately
-                  window.open(`/preview?url=${encodeURIComponent(previewUrl)}`, "_blank");
+                  const portQuery = serverPort ? `&port=${serverPort}` : "";
+                  window.open(`/preview?url=${encodeURIComponent(previewUrl)}${portQuery}`, "_blank");
                 } else {
                   // Server not started — open tab and initiate start
                   window.open("/preview", "_blank");

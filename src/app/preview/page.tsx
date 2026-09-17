@@ -13,6 +13,7 @@ import {
 
 export default function PreviewPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [serverPort, setServerPort] = useState<string | null>(null);
   const [status, setStatus] = useState<"connecting" | "connected" | "error">("connecting");
   const [statusMessage, setStatusMessage] = useState<string>("Initializing WebContainer...");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -21,6 +22,15 @@ export default function PreviewPage() {
   const connectedRef = useRef<boolean>(false);
   connectedRef.current = status === "connected" && Boolean(previewUrl);
   const channelRef = useRef<BroadcastChannel | null>(null);
+
+  const displayPort = serverPort || (() => {
+    if (!previewUrl) return null;
+    try {
+      return new URL(previewUrl).port || null;
+    } catch {
+      return null;
+    }
+  })();
 
   // Track elapsed seconds
   useEffect(() => {
@@ -36,6 +46,10 @@ export default function PreviewPage() {
     // 1. Check if URL was passed via query parameter (fastest, direct)
     const params = new URLSearchParams(window.location.search);
     const urlParam = params.get("url");
+    const portParam = params.get("port");
+    if (portParam) {
+      setServerPort(portParam);
+    }
     if (urlParam) {
       try {
         const decoded = decodeURIComponent(urlParam);
@@ -43,6 +57,7 @@ export default function PreviewPage() {
         setStatus("connected");
         setStatusMessage("Connected to live server");
         localStorage.setItem("nudge-preview-url", decoded);
+        if (portParam) localStorage.setItem("nudge-preview-port", portParam);
         localStorage.setItem("nudge-preview-status", "ready");
         return;
       } catch {
@@ -62,23 +77,27 @@ export default function PreviewPage() {
 
         if (data.type === "preview-url" && data.url) {
           setPreviewUrl(data.url);
+          if (data.port) setServerPort(String(data.port));
           setStatus("connected");
           setStatusMessage("Connected to live server");
           localStorage.setItem("nudge-preview-url", data.url);
+          if (data.port) localStorage.setItem("nudge-preview-port", String(data.port));
           localStorage.setItem("nudge-preview-status", "ready");
         } else if (data.type === "server-status") {
           if (data.status === "ready" && data.url) {
             setPreviewUrl(data.url);
+            if (data.port) setServerPort(String(data.port));
             setStatus("connected");
           } else if (data.status === "installing") {
             setStatusMessage(data.message || "Installing project dependencies (npm install)...");
           } else if (data.status === "starting") {
-            setStatusMessage(data.message || "Starting dev server on port 5000...");
+            setStatusMessage(data.message || "Starting dev server...");
           } else if (data.status === "stopped") {
             setStatusMessage("Dev server stopped.");
           }
         } else if (data.type === "server-error") {
           setStatusMessage(data.message || "Failed to start dev server");
+          setStatus("error");
         }
       };
 
@@ -93,11 +112,21 @@ export default function PreviewPage() {
       if (connectedRef.current) return;
 
       const storedUrl = localStorage.getItem("nudge-preview-url");
+      const storedPort = localStorage.getItem("nudge-preview-port");
       const storedStatus = localStorage.getItem("nudge-preview-status");
       const storedMsg = localStorage.getItem("nudge-preview-status-message");
 
+      if (storedPort) {
+        setServerPort((curr) => curr || storedPort);
+      }
+
       if (storedMsg) {
         setStatusMessage(storedMsg);
+      }
+
+      if (storedStatus === "error") {
+        setStatus("error");
+        return;
       }
 
       if (storedUrl && (storedStatus === "ready" || !storedStatus)) {
@@ -171,9 +200,11 @@ export default function PreviewPage() {
                   LIVE PREVIEW
                 </span>
               </div>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#11181A] text-[#A9B5B2] border border-[#202A2C]">
-                PORT 5000
-              </span>
+              {displayPort && (
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#11181A] text-[#A9B5B2] border border-[#202A2C]">
+                  PORT {displayPort}
+                </span>
+              )}
             </div>
 
             {/* Center: Live URL display */}

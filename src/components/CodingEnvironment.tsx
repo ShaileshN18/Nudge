@@ -43,9 +43,14 @@ import {
   spawnProcess,
   writeProjectFile,
   readProjectFile,
-  onServerReady,
   getWebContainer,
   detectServerCommand,
+  getDevServerState,
+  subscribeDevServer,
+  startDevServer,
+  stopDevServer,
+  restartDevServer,
+  type DevServerState,
 } from "@/lib/webcontainer";
 import { evaluateTask } from "@/lib/ai/evaluation/evaluateTask";
 import { useMentor } from "@/hooks/useMentor";
@@ -116,27 +121,33 @@ export default function CodingEnvironment({
   const [terminalInput, setTerminalInput] = useState("");
   const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
 
-  // Server & Live Preview state
-  const [isServerRunning, setIsServerRunning] = useState(false);
-  const [startingServer, setStartingServer] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [serverPort, setServerPort] = useState<number | null>(null);
+  // Server & Live Preview authoritative state (single source of truth)
+  const [devServerState, setDevServerState] = useState<DevServerState>(() => getDevServerState());
+
+  useEffect(() => {
+    return subscribeDevServer((state) => {
+      setDevServerState(state);
+    });
+  }, []);
+
+  const isServerRunning = devServerState.status === "running";
+  const startingServer = devServerState.status === "starting";
+  const previewUrl = devServerState.url;
+  const serverPort = devServerState.port;
+  const serverError = devServerState.error;
   const [previewPath, setPreviewPath] = useState("/");
   const [panelExpanded, setPanelExpanded] = useState(false);
   const [iframeReloadKey, setIframeReloadKey] = useState(0);
-  const serverProcessRef = React.useRef<any>(null);
-  const serverReadyUnsubscribeRef = useRef<(() => void) | null>(null);
   const terminalPanelRef = useRef<PanelImperativeHandle | null>(null);
   const previewChannelRef = useRef<BroadcastChannel | null>(null);
 
-  // Synchronized refs to avoid stale closures
+  // Synchronized refs to avoid stale closures in callbacks
   const previewUrlRef = useRef<string | null>(null);
   previewUrlRef.current = previewUrl;
   const isServerRunningRef = useRef<boolean>(false);
   isServerRunningRef.current = isServerRunning;
   const startingServerRef = useRef<boolean>(false);
   startingServerRef.current = startingServer;
-  const serverStatusMessageRef = useRef<string>("idle");
 
   const broadcastPreview = useCallback((type: string, data: Record<string, any> = {}) => {
     try {
@@ -144,32 +155,6 @@ export default function CodingEnvironment({
     } catch {
       // Ignore
     }
-  }, []);
-
-  const updateServerStatus = useCallback((status: string, message: string) => {
-    serverStatusMessageRef.current = message;
-    try {
-      localStorage.setItem("nudge-preview-status", status);
-      localStorage.setItem("nudge-preview-status-message", message);
-      broadcastPreview("server-status", { status, message });
-    } catch {
-      // Ignore
-    }
-  }, [broadcastPreview]);
-
-  const resetServerLifecycle = useCallback((message?: string) => {
-    serverReadyUnsubscribeRef.current?.();
-    serverReadyUnsubscribeRef.current = null;
-    if (serverProcessRef.current) {
-      try { serverProcessRef.current.kill(); } catch { /* process may already be stopped */ }
-      serverProcessRef.current = null;
-    }
-    setStartingServer(false);
-    startingServerRef.current = false;
-    setIsServerRunning(false);
-    setPreviewUrl(null);
-    setServerPort(null);
-    if (message) setTerminalLogs((logs) => [...logs, message]);
   }, []);
 
   // References for cross-tab message handlers
@@ -188,13 +173,19 @@ export default function CodingEnvironment({
         if (!data || typeof data !== "object") return;
 
         if (data.type === "request-preview-url") {
-          if (previewUrlRef.current) {
-            channel?.postMessage({ type: "preview-url", url: previewUrlRef.current });
-          } else if (startingServerRef.current) {
+          const current = getDevServerState();
+          if (current.status === "running" && current.url) {
+            channel?.postMessage({ type: "preview-url", url: current.url, port: current.port });
+          } else if (current.status === "starting") {
             channel?.postMessage({
               type: "server-status",
               status: "starting",
-              message: serverStatusMessageRef.current || "Starting dev server...",
+              message: "Starting dev server...",
+            });
+          } else if (current.status === "error") {
+            channel?.postMessage({
+              type: "server-error",
+              message: current.error || "Dev server failed",
             });
           } else {
             handleStartServerRef.current?.({ openTab: false });
@@ -215,17 +206,31 @@ export default function CodingEnvironment({
     };
   }, []);
 
-  // Broadcast preview URL whenever it changes
+  // Sync devServerState with localStorage and BroadcastChannel
   useEffect(() => {
-    if (previewUrl) {
-      localStorage.setItem("nudge-preview-url", previewUrl);
+    if (devServerState.status === "running" && devServerState.url) {
+      localStorage.setItem("nudge-preview-url", devServerState.url);
+      if (devServerState.port) localStorage.setItem("nudge-preview-port", String(devServerState.port));
       localStorage.setItem("nudge-preview-status", "ready");
-      broadcastPreview("preview-url", { url: previewUrl });
+      broadcastPreview("preview-url", { url: devServerState.url, port: devServerState.port });
+    } else if (devServerState.status === "starting") {
+      localStorage.removeItem("nudge-preview-url");
+      localStorage.removeItem("nudge-preview-port");
+      localStorage.setItem("nudge-preview-status", "starting");
+      broadcastPreview("server-status", { status: "starting", message: "Starting dev server..." });
+    } else if (devServerState.status === "error") {
+      localStorage.removeItem("nudge-preview-url");
+      localStorage.removeItem("nudge-preview-port");
+      localStorage.setItem("nudge-preview-status", "error");
+      localStorage.setItem("nudge-preview-status-message", devServerState.error || "Dev server failed");
+      broadcastPreview("server-error", { message: devServerState.error || "Dev server failed" });
     } else {
       localStorage.removeItem("nudge-preview-url");
-      localStorage.setItem("nudge-preview-status", startingServer ? "starting" : "idle");
+      localStorage.removeItem("nudge-preview-port");
+      localStorage.setItem("nudge-preview-status", "idle");
+      broadcastPreview("server-status", { status: "stopped", message: "Dev server stopped" });
     }
-  }, [previewUrl, startingServer, broadcastPreview]);
+  }, [devServerState, broadcastPreview]);
 
   const toggleTerminalExpand = useCallback(() => {
     if (panelExpanded) {
@@ -327,9 +332,19 @@ export default function CodingEnvironment({
         }
 
         try {
-          resetServerLifecycle();
           await mountProject(files);
           setTreeRefreshKey((k) => k + 1);
+
+          // Auto-start dev server on mount if not already running or starting
+          const currentStatus = getDevServerState().status;
+          if (currentStatus !== "running" && currentStatus !== "starting") {
+            startDevServer({
+              onOutput: (chunk) => {
+                const lines = chunk.split("\n").filter((l) => l.length > 0);
+                setTerminalLogs((prev) => [...prev, ...lines]);
+              },
+            }).catch(() => {});
+          }
         } catch (mErr) {
           console.warn("WebContainer mount warning:", mErr);
         }
@@ -340,9 +355,8 @@ export default function CodingEnvironment({
 
     return () => {
       isSubscribed = false;
-      resetServerLifecycle();
     };
-  }, [projectIdOrSlug, initialProject, resetServerLifecycle]);
+  }, [projectIdOrSlug, initialProject]);
 
   // ── Tab & File selection ──────────────────────────────────────────
   const handleSelectFile = useCallback((path: string) => {
@@ -649,161 +663,63 @@ export default function CodingEnvironment({
     runButtonType = "test";
   }
 
-  const handleStartServer = useCallback(async (options?: { openTab?: boolean }) => {
-    setActiveBottomTab("preview");
-    if (isServerRunningRef.current && previewUrlRef.current) {
+  const handleStartServer = useCallback(
+    async (options?: { openTab?: boolean }) => {
+      setActiveBottomTab("preview");
+
       if (options?.openTab) {
-        window.open(`/preview?url=${encodeURIComponent(previewUrlRef.current)}`, "_blank");
-      }
-      return;
-    }
-    if (startingServerRef.current || serverProcessRef.current) return;
-
-    if (options?.openTab) {
-      window.open("/preview", "_blank");
-    }
-
-    setStartingServer(true);
-    startingServerRef.current = true;
-    setIsServerRunning(false);
-    setPreviewUrl(null);
-    setServerPort(null);
-    updateServerStatus("starting", "Booting WebContainer Dev Server...");
-
-    const appendLog = (lines: string | string[]) => {
-      const arr = Array.isArray(lines) ? lines : lines.split("\n");
-      setTerminalLogs((prev) => [...prev, ...arr.filter((l) => l.length > 0)]);
-    };
-
-    try {
-      // Auto-save active file before starting server
-      if (activeFilePath && activeFileContent) {
-        try {
-          await writeProjectFile(activeFilePath, activeFileContent);
-        } catch (saveErr) {
-          console.warn("Auto-save warning:", saveErr);
+        if (devServerState.url) {
+          const portQuery = devServerState.port ? `&port=${devServerState.port}` : "";
+          window.open(
+            `/preview?url=${encodeURIComponent(devServerState.url)}${portQuery}`,
+            "_blank"
+          );
+        } else {
+          window.open("/preview", "_blank");
         }
       }
 
-      // A server process is READY only when WebContainer reports its public URL.
       try {
-        serverReadyUnsubscribeRef.current?.();
-        serverReadyUnsubscribeRef.current = await onServerReady((port, url) => {
-          setPreviewUrl(url);
-          setServerPort(port);
-          setIsServerRunning(true);
-          setStartingServer(false);
-          startingServerRef.current = false;
-          setActiveBottomTab("preview");
-          localStorage.setItem("nudge-preview-url", url);
-          localStorage.setItem("nudge-preview-status", "ready");
-          broadcastPreview("preview-url", { url });
-          appendLog([
-            `✔ [WebContainer] Dev Server Ready! Listening on port ${port}`,
-            `🌐 Live Preview URL: ${url}`,
-          ]);
+        if (activeFilePath && activeFileContent) {
+          await writeProjectFile(activeFilePath, activeFileContent).catch(() => {});
+        }
+        await startDevServer({
+          onOutput: (chunk) => {
+            const lines = chunk.split("\n").filter((l) => l.length > 0);
+            setTerminalLogs((prev) => [...prev, ...lines]);
+          },
         });
-      } catch (srErr) {
-        console.warn("onServerReady listener error:", srErr);
+      } catch (err: any) {
+        console.warn("Dev server start error:", err?.message);
       }
-
-      // Smart Dev Server: automatically inspects virtual filesystem
-      const detected = await detectServerCommand();
-      setTerminalLogs((prev) => [
-        ...prev,
-        "",
-        `➜ ${detected.description}`,
-        `⚡ [WebContainer] Starting ${detected.description}...`,
-      ]);
-
-      // Check if npm install is needed (skip if node_modules already exists!)
-      if (
-        detected.type === "npm-script" ||
-        (detected.type === "node-server" && detected.args[0]?.includes("server"))
-      ) {
-        let hasNodeModules = false;
-        try {
-          const container = await getWebContainer();
-          const entries = await container.fs.readdir(".", { withFileTypes: true });
-          hasNodeModules = entries.some((e: any) => (typeof e === "string" ? e : e.name) === "node_modules");
-        } catch {
-          hasNodeModules = false;
-        }
-
-        if (!hasNodeModules) {
-          try {
-            appendLog("📦 Installing project dependencies (npm install)...");
-            updateServerStatus("installing", "Installing dependencies (npm install)...");
-            const installProcess = await spawnProcess("npm", ["install"], {
-              output: (chunk) => appendLog(chunk),
-            });
-            const installCode = await installProcess.exit;
-            if (installCode === 0) {
-              appendLog("✔ Dependencies ready.");
-            } else {
-              throw new Error(`Dependency installation exited with code ${installCode}`);
-            }
-          } catch (iErr: any) {
-            appendLog(`❌ ${iErr?.message || "Dependency installation failed."}`);
-            resetServerLifecycle();
-            updateServerStatus("error", iErr?.message || "Dependency installation failed");
-            return;
-          }
-        }
-      }
-
-      updateServerStatus("starting", `Starting ${detected.description}...`);
-      const proc = await spawnProcess(detected.command, detected.args, {
-        output: (chunk) => appendLog(chunk),
-      });
-
-      serverProcessRef.current = proc;
-
-      proc.exit.then((code) => {
-        if (serverProcessRef.current !== proc) return;
-        const wasReady = Boolean(previewUrlRef.current);
-        serverProcessRef.current = null;
-        serverReadyUnsubscribeRef.current?.();
-        serverReadyUnsubscribeRef.current = null;
-        setIsServerRunning(false);
-        setStartingServer(false);
-        startingServerRef.current = false;
-        setPreviewUrl(null);
-        setServerPort(null);
-        updateServerStatus(wasReady ? "stopped" : "error", wasReady ? `Dev server stopped (code ${code})` : `Dev server exited before becoming ready (code ${code})`);
-        appendLog(wasReady ? `ℹ Server process exited with code ${code}` : `❌ Server exited before becoming ready (code ${code}). See process output above.`);
-      });
-    } catch (err: any) {
-      console.warn("Spawn server error:", err);
-      updateServerStatus("error", err?.message || "Failed to spawn server process");
-      appendLog([
-        "❌ Failed to spawn server process.",
-        `Error: ${err?.message || err}`,
-      ]);
-      resetServerLifecycle();
-    } finally {
-      // Remain STARTING until server-ready or process exit; do not infer readiness from spawn().
-      if (!serverProcessRef.current) {
-        setStartingServer(false);
-        startingServerRef.current = false;
-      }
-    }
-  }, [activeFilePath, activeFileContent, broadcastPreview, resetServerLifecycle, updateServerStatus]);
+    },
+    [activeFilePath, activeFileContent, devServerState.url, devServerState.port]
+  );
 
   handleStartServerRef.current = handleStartServer;
 
   const handleRestartServer = useCallback(async () => {
-    resetServerLifecycle();
-    localStorage.removeItem("nudge-preview-url");
-    updateServerStatus("starting", "Restarting dev server...");
-    await handleStartServer({ openTab: false });
-  }, [handleStartServer, resetServerLifecycle, updateServerStatus]);
+    try {
+      if (activeFilePath && activeFileContent) {
+        await writeProjectFile(activeFilePath, activeFileContent).catch(() => {});
+      }
+      await restartDevServer({
+        onOutput: (chunk) => {
+          const lines = chunk.split("\n").filter((l) => l.length > 0);
+          setTerminalLogs((prev) => [...prev, ...lines]);
+        },
+      });
+    } catch (err: any) {
+      console.warn("Dev server restart error:", err?.message);
+    }
+  }, [activeFilePath, activeFileContent]);
 
   handleRestartServerRef.current = handleRestartServer;
 
-  const handleStopServer = useCallback(() => {
-    resetServerLifecycle("🛑 Dev server stopped.");
-  }, [resetServerLifecycle]);
+  const handleStopServer = useCallback(async () => {
+    await stopDevServer();
+    setTerminalLogs((prev) => [...prev, "🛑 Dev server stopped."]);
+  }, []);
 
   const handleRunCode = async (cmd = "node", args = ["test.js"]) => {
     const isServerRun =
@@ -997,17 +913,6 @@ export default function CodingEnvironment({
     handleStartServer,
   ]);
 
-  // Auto-start dev server in background on project mount
-  const autoBootStartedRef = useRef(false);
-  useEffect(() => {
-    if (!loading && !isMounting && project?.files?.length && !autoBootStartedRef.current) {
-      autoBootStartedRef.current = true;
-      const timer = setTimeout(() => {
-        handleStartServer({ openTab: false });
-      }, 700);
-      return () => clearTimeout(timer);
-    }
-  }, [loading, isMounting, project, handleStartServer]);
 
   const handleRunEvaluation = async () => {
     setEvaluating(true);
@@ -1358,6 +1263,7 @@ export default function CodingEnvironment({
                   isServerRunning={isServerRunning}
                   startingServer={startingServer}
                   previewUrl={previewUrl}
+                  serverPort={serverPort}
                   viewMode={workspaceViewMode}
                   onChangeViewMode={setWorkspaceViewMode}
                   evalResults={evalResults}
@@ -1383,6 +1289,7 @@ export default function CodingEnvironment({
                     onStartServer={handleStartServer}
                     previewPath={previewPath}
                     onChangePreviewPath={setPreviewPath}
+                    serverError={serverError}
                     isCompact={false}
                   />
                 </ResizablePanel>
@@ -1434,6 +1341,7 @@ export default function CodingEnvironment({
                             onStartServer={handleStartServer}
                             previewPath={previewPath}
                             onChangePreviewPath={setPreviewPath}
+                            serverError={serverError}
                             isCompact={false}
                           />
                         </ResizablePanel>
@@ -1698,6 +1606,7 @@ export default function CodingEnvironment({
                           onStartServer={handleStartServer}
                           previewPath={previewPath}
                           onChangePreviewPath={setPreviewPath}
+                          serverError={serverError}
                           isCompact={true}
                         />
                       )}
