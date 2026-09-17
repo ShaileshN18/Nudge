@@ -38,13 +38,18 @@ export async function POST(request: Request) {
 
     const geminiApiKey = process.env.GEMINI_API_KEY;
 
-    if (geminiApiKey) {
-      try {
-        const cleanedActiveContent = activeFile?.content
-          ? activeFile.content.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").split("\n").slice(0, 300).join("\n")
-          : "// No file content";
+    if (!geminiApiKey) {
+      return NextResponse.json(
+        { error: "GEMINI_API_KEY is not configured.", code: "NO_API_KEY" },
+        { status: 500 }
+      );
+    }
 
-        const systemPrompt = `You are "AI Mentor", a top-tier pedagogical software engineering mentor.
+    const cleanedActiveContent = activeFile?.content
+      ? activeFile.content.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").split("\n").slice(0, 300).join("\n")
+      : "// No file content";
+
+    const systemPrompt = `You are "AI Mentor", a top-tier pedagogical software engineering mentor.
 The student is working on:
 - Order/Step: ${task?.order || 1}
 - Title: ${task?.title || "Current Task"}
@@ -67,75 +72,79 @@ ${cleanedActiveContent}
 4. **KEEP CODE SAMPLES MINIMAL & ABSTRACT**: If illustrating syntax, provide only generic 1-line signatures or abstract snippets with placeholder names, never the exact solution to the task.
 5. Format your answers clearly with markdown, bullet points, and concise explanations.`;
 
-        // Filter valid history turns
-        const chatTurns = history
-          .filter((msg) => msg.role === "user" || msg.role === "assistant")
-          .slice(-6)
-          .map((msg) => ({
-            role: msg.role === "assistant" ? "model" : "user",
-            parts: [{ text: msg.content }],
-          }));
+    // Filter valid history turns
+    const chatTurns = history
+      .filter((msg) => msg.role === "user" || msg.role === "assistant")
+      .slice(-6)
+      .map((msg) => ({
+        role: msg.role === "assistant" ? "model" : "user",
+        parts: [{ text: msg.content }],
+      }));
 
-        const contents = [
-          ...chatTurns,
-          {
-            role: "user",
-            parts: [{ text: message }],
+    const contents = [
+      ...chatTurns,
+      {
+        role: "user",
+        parts: [{ text: message }],
+      },
+    ];
+
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [{ text: systemPrompt }],
           },
-        ];
-
-        const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiApiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              system_instruction: {
-                parts: [{ text: systemPrompt }],
-              },
-              contents,
-              generationConfig: {
-                temperature: 0.3,
-                maxOutputTokens: 2048,
-              },
-            }),
-          }
-        );
-
-        if (geminiRes.status === 429) {
-          return NextResponse.json(
-            { error: "AI rate limit reached. Please wait a moment before sending another message.", code: "RATE_LIMITED" },
-            { status: 429 }
-          );
-        }
-
-        if (geminiRes.status === 503) {
-          return NextResponse.json(
-            { error: "AI service is currently experiencing high demand. Please try again shortly.", code: "SERVICE_UNAVAILABLE" },
-            { status: 503 }
-          );
-        }
-
-        if (geminiRes.ok) {
-          const geminiData = await geminiRes.json();
-          let reply =
-            geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (reply) {
-            // Guardrail: if model accidentally generated large code blocks when user asked for code
-            const codeBlockMatches = reply.match(/```[\s\S]*?```/g);
-            if (codeBlockMatches && codeBlockMatches.some((b: string) => b.split("\n").length > 6)) {
-              reply = `I can't write the complete code for you, but I can guide you through it! 💡\n\nLet's break down what your code needs step by step. What part of the logic would you like to tackle first?`;
-            }
-            return NextResponse.json({ reply });
-          }
-        }
-      } catch (geminiErr) {
-        console.warn("Gemini API call failed, falling back to built-in mentor:", geminiErr);
+          contents,
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 2048,
+          },
+        }),
       }
+    );
+
+    if (geminiRes.status === 429) {
+      return NextResponse.json(
+        { error: "AI rate limit reached. Please wait a moment before sending another message.", code: "RATE_LIMITED" },
+        { status: 429 }
+      );
     }
 
-    // Built-in intelligent mentor response generator (project-agnostic fallback)
-    const reply = generateMentorResponse(message, task, activeFile);
+    if (geminiRes.status === 503) {
+      return NextResponse.json(
+        { error: "AI service is currently experiencing high demand. Please try again shortly.", code: "SERVICE_UNAVAILABLE" },
+        { status: 503 }
+      );
+    }
+
+    if (!geminiRes.ok) {
+      const errData = await geminiRes.json().catch(() => null);
+      return NextResponse.json(
+        { error: errData?.error?.message || "Failed to get AI response", code: "AI_ERROR" },
+        { status: geminiRes.status >= 400 && geminiRes.status < 600 ? geminiRes.status : 500 }
+      );
+    }
+
+    const geminiData = await geminiRes.json();
+    let reply = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!reply) {
+      return NextResponse.json(
+        { error: "No response text generated by AI model.", code: "EMPTY_RESPONSE" },
+        { status: 502 }
+      );
+    }
+
+    // Guardrail: if model accidentally generated large code blocks when user asked for code
+    const codeBlockMatches = reply.match(/```[\s\S]*?```/g);
+    if (codeBlockMatches && codeBlockMatches.some((b: string) => b.split("\n").length > 6)) {
+      reply = `I can't write the complete code for you, but I can guide you through it! 💡\n\nLet's break down what your code needs step by step. What part of the logic would you like to tackle first?`;
+    }
+
     return NextResponse.json({ reply });
   } catch (err: any) {
     console.error("AI Chat route error:", err);
@@ -144,22 +153,5 @@ ${cleanedActiveContent}
       { status: 500 }
     );
   }
-}
-
-function generateMentorResponse(
-  _userQuery: string,
-  task?: ChatRequestBody["task"],
-  activeFile?: ChatRequestBody["activeFile"]
-): string {
-  const filePath = activeFile?.path || task?.targetFiles?.[0] || "";
-  const title = task?.title || "current task";
-
-  return `### 💡 AI Mentor
-I'm here to guide you through **${title}**.
-
-**Goal:** ${task?.goal || task?.description || "Implement the task requirements."}
-**Target Files:** ${(task?.targetFiles || []).map((f) => `\`${f}\``).join(", ") || "None specified"}
-
-I can help explain concepts, review logic in \`${filePath}\`, or break down evaluation criteria without giving away direct code solutions. What specific part of this task would you like to work through?`;
 }
 

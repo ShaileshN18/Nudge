@@ -255,8 +255,8 @@ export default function CodingEnvironment({
         // Restore saved active file or choose best default
         const preferredFile =
           (preferredPath && files.find((f) => f.path === preferredPath)) ||
-          files.find((f) => f.path.includes("routes/feedback.js")) ||
-          files.find((f) => f.path.includes("models/Feedback.js")) ||
+          files.find((f) => f.path.endsWith("feedback.js")) ||
+          files.find((f) => f.path.includes("feedback.js")) ||
           files.find((f) => f.path.includes("User.js")) ||
           files.find((f) => f.path.includes("server.js")) ||
           files.find((f) => f.visible !== false && f.editable !== false) ||
@@ -267,16 +267,19 @@ export default function CodingEnvironment({
           setActiveFileContent(preferredFile.content);
 
           const initialTabsList: OpenTab[] = [];
+          // Match screenshot tabs order: server.js, feedback.js, routes.js
+          ["server.js", "feedback.js", "routes.js"].forEach((name) => {
+            const match = files.find((f) => f.path.endsWith("/" + name) || f.path === name);
+            if (match && !initialTabsList.some((t) => t.path === match.path)) {
+              initialTabsList.push({ path: match.path, dirty: false });
+            }
+          });
+
+          // Add any other core target files
           files.forEach((f) => {
             if (
-              f.path.includes("routes/feedback.js") ||
-              f.path.includes("models/Feedback.js") ||
-              f.path.includes("public/index.html") ||
-              f.path.includes("frontend/index.html") ||
-              f.path.includes("server.js") ||
-              f.path.includes("User.js") ||
-              f.path.includes("routes/auth.js") ||
-              f.path.includes("test.js")
+              !initialTabsList.some((t) => t.path === f.path) &&
+              (f.path.includes("User.js") || f.path.includes("auth.js"))
             ) {
               initialTabsList.push({ path: f.path, dirty: false });
             }
@@ -1129,58 +1132,40 @@ export default function CodingEnvironment({
   const brandName = project?.title || "Build JWT Auth with Express & Node.js";
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#07090f] text-slate-100 overflow-hidden font-sans select-none">
-      {/* ── Top Bar / Header: CodeLearn Branding, Nav, Search & Avatar ── */}
-      <header className="h-12 bg-[#090d14] border-b border-slate-800/80 px-4 flex items-center justify-between shrink-0 z-20">
+    <div className="h-screen w-screen flex flex-col bg-[#080C0D] text-[#F4F7F6] overflow-hidden font-sans select-none">
+      {/* ── Top Bar / Header: CodeLearn Branding, Nav & User Avatar (Search & Theme toggle removed per DESIGN.md & Screenshot 1) ── */}
+      <header className="h-12 bg-[#080C0D] border-b border-[#202A2C] px-4 flex items-center justify-between shrink-0 z-20">
         {/* Left: Stylized Glyph, CodeLearn Title, Links */}
         <div className="flex items-center gap-6">
           <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="flex items-center justify-center text-[#10b981]">
-              <svg className="w-5 h-5 text-[#10b981]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
+            <div className="flex items-center justify-center text-[#67D6B2]">
+              <svg className="w-5 h-5 text-[#67D6B2]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="4 17 10 11 4 5" />
                 <line x1="12" y1="19" x2="20" y2="19" />
               </svg>
             </div>
-            <span className="font-bold text-sm tracking-tight text-white group-hover:text-emerald-400 transition-colors">
+            <span className="font-bold text-sm tracking-tight text-[#F4F7F6] group-hover:text-[#67D6B2] transition-colors">
               CodeLearn
             </span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-6 text-xs">
-            <button className="text-slate-400 hover:text-white transition-colors cursor-pointer">
+            <button className="text-[#71807C] hover:text-[#F4F7F6] transition-colors cursor-pointer">
               Learn
             </button>
-            <button className="text-white font-semibold transition-colors cursor-pointer">
+            <button className="text-[#F4F7F6] font-semibold transition-colors cursor-pointer">
               Projects
             </button>
-            <button className="text-slate-400 hover:text-white transition-colors cursor-pointer">
+            <button className="text-[#71807C] hover:text-[#F4F7F6] transition-colors cursor-pointer">
               Progress
             </button>
           </nav>
         </div>
 
-        {/* Right: Search bar, Theme toggle & Avatar */}
+        {/* Right: Only User Avatar matching Screenshot 1 */}
         <div className="flex items-center gap-3">
-          {/* Search with Ctrl K */}
-          <div className="hidden sm:flex items-center gap-2 bg-[#121622] border border-slate-800/80 rounded-lg px-2.5 py-1 text-xs text-slate-400 w-44">
-            <Search className="h-3.5 w-3.5 text-slate-500" />
-            <span className="flex-1 text-[11px] text-slate-500">Search...</span>
-            <kbd className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700/60">
-              Ctrl K
-            </kbd>
-          </div>
-
-          {/* Theme toggle */}
-          <button
-            className="p-1.5 text-slate-400 hover:text-white transition-colors cursor-pointer"
-            title="Toggle Theme"
-          >
-            <Sun className="h-4 w-4" />
-          </button>
-
-          {/* User Profile / Avatar */}
           <div
-            className="h-7 w-7 rounded-full bg-[#10b981]/25 border border-[#10b981]/50 flex items-center justify-center text-xs font-bold text-[#34d399] shadow-sm uppercase cursor-pointer"
+            className="h-7 w-7 rounded-full bg-[#67D6B2]/20 border border-[#67D6B2]/40 flex items-center justify-center text-xs font-bold text-[#67D6B2] shadow-sm uppercase cursor-pointer"
             title={user ? `${user.name} (${user.email})` : "Tanishq"}
           >
             {user?.name ? user.name[0] : "T"}
@@ -1198,35 +1183,35 @@ export default function CodingEnvironment({
             minSize="12%"
             maxSize="35%"
             collapsible={true}
-            className="bg-[#0b0f15] flex flex-col overflow-hidden border-r border-slate-800/80"
+            className="bg-[#080C0D] flex flex-col overflow-hidden border-r border-[#202A2C]"
           >
             {/* Back to projects link */}
-            <div className="px-4 pt-3.5 pb-2">
+            <div className="px-4 pt-4 pb-3">
               <Link
                 href="/"
-                className="inline-flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors"
+                className="inline-flex items-center gap-2.5 text-sm font-medium text-[#A7C9C0] hover:text-white transition-colors"
               >
-                <ArrowLeft className="h-3.5 w-3.5" />
+                <ArrowLeft className="h-4 w-4 text-[#6BCDB4]" />
                 <span>Back to projects</span>
               </Link>
             </div>
 
             {/* Project Selector Dropdown */}
-            <div className="px-4 py-2 border-b border-slate-800/60">
-              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                Project
+            <div className="px-4 pb-3 border-b border-[#202A2C]">
+              <div className="text-[10px] font-bold text-[#5F7575] uppercase tracking-wider mb-1">
+                PROJECT
               </div>
               <button
                 onClick={() => setShowTaskDetailsModal(true)}
-                className="flex items-center justify-between w-full text-left text-xs font-bold text-white hover:text-slate-200 pt-0.5 group cursor-pointer"
+                className="flex items-center justify-between w-full text-left text-sm font-bold text-white hover:text-[#6BCDB4] group cursor-pointer"
               >
                 <span className="truncate">{project?.title || "Full-Stack Feedback Board"}</span>
-                <ChevronDown className="h-3.5 w-3.5 text-slate-400 group-hover:text-white shrink-0 ml-1" />
+                <ChevronDown className="h-4 w-4 text-[#6BCDB4] group-hover:text-white shrink-0 ml-1" />
               </button>
             </div>
 
             {/* File Explorer */}
-            <div className="flex-1 overflow-y-auto px-1 py-1">
+            <div className="flex-1 overflow-y-auto px-1.5 py-1">
               <FileTree
                 activePath={activeFilePath}
                 onSelectFile={handleSelectFile}
@@ -1237,47 +1222,6 @@ export default function CodingEnvironment({
                 files={project?.files}
                 starterFilePaths={starterFilePaths}
               />
-            </div>
-
-            {/* Bottom: Task Progress Donut Card matching screenshots */}
-            <div className="p-3 border-t border-slate-800/80 bg-[#0d121c] shrink-0">
-              <div className="flex items-center gap-3">
-                {/* Circular Donut Progress Ring */}
-                <div className="relative w-10 h-10 shrink-0 flex items-center justify-center">
-                  <svg className="w-10 h-10 transform -rotate-90" viewBox="0 0 36 36">
-                    {/* Background Ring */}
-                    <path
-                      className="text-slate-800"
-                      strokeWidth="3.5"
-                      stroke="currentColor"
-                      fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    />
-                    {/* Progress Teal Ring: 20% */}
-                    <path
-                      className="text-[#10b981]"
-                      strokeDasharray={`${((currentTaskIndex + 1) / (project?.tasks?.length || 5)) * 100}, 100`}
-                      strokeWidth="3.5"
-                      strokeLinecap="round"
-                      stroke="currentColor"
-                      fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    />
-                  </svg>
-                </div>
-
-                <div className="space-y-0.5">
-                  <div className="text-[11px] font-medium text-slate-400">
-                    Task progress
-                  </div>
-                  <div className="text-xs font-bold text-white">
-                    {currentTaskIndex + 1} of {project?.tasks?.length || 5}
-                  </div>
-                  <div className="text-[10px] text-slate-500">
-                    {Math.round(((currentTaskIndex + 1) / (project?.tasks?.length || 5)) * 100)}% complete
-                  </div>
-                </div>
-              </div>
             </div>
           </ResizablePanel>
 
@@ -1432,17 +1376,17 @@ export default function CodingEnvironment({
                     className="bg-[#0a0d16] flex flex-col overflow-hidden"
                   >
                     {/* Panel Tabs Header */}
-                    <div className="h-9 bg-[#0b0f15] border-b border-slate-800/80 px-4 flex items-center justify-between shrink-0">
+                    <div className="h-9 bg-[#080C0D] border-b border-[#202A2C] px-4 flex items-center justify-between shrink-0">
                       <div className="flex items-center gap-4 text-xs font-medium">
                         <button
                           onClick={() => setActiveBottomTab("terminal")}
                           className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
                             activeBottomTab === "terminal"
-                              ? "border-[#10b981] text-white font-semibold"
-                              : "border-transparent text-slate-400 hover:text-slate-200"
+                              ? "border-[#82CDBD] text-[#F4F7F6] font-semibold"
+                              : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
                           }`}
                         >
-                          <Terminal className="h-3.5 w-3.5 text-[#10b981]" />
+                          <Terminal className="h-3.5 w-3.5 text-[#67D6B2]" />
                           <span>Terminal</span>
                         </button>
 
@@ -1450,11 +1394,11 @@ export default function CodingEnvironment({
                           onClick={() => setActiveBottomTab("problems")}
                           className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
                             activeBottomTab === "problems"
-                              ? "border-[#10b981] text-white font-semibold"
-                              : "border-transparent text-slate-400 hover:text-slate-200"
+                              ? "border-[#82CDBD] text-[#F4F7F6] font-semibold"
+                              : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
                           }`}
                         >
-                          <AlertCircle className="h-3.5 w-3.5 text-slate-400" />
+                          <AlertCircle className="h-3.5 w-3.5 text-[#71807C]" />
                           <span>Problems 0</span>
                         </button>
 
@@ -1462,11 +1406,11 @@ export default function CodingEnvironment({
                           onClick={() => setActiveBottomTab("evaluation")}
                           className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
                             activeBottomTab === "evaluation"
-                              ? "border-rose-500 text-white font-semibold"
-                              : "border-transparent text-slate-400 hover:text-slate-200"
+                              ? "border-[#F06A6A] text-[#F4F7F6] font-semibold"
+                              : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
                           }`}
                         >
-                          <XCircle className="h-3.5 w-3.5 text-rose-400" />
+                          <XCircle className="h-3.5 w-3.5 text-[#F06A6A]" />
                           <span>Evaluation Results</span>
                         </button>
 
@@ -1475,11 +1419,11 @@ export default function CodingEnvironment({
                             onClick={() => setActiveBottomTab("preview")}
                             className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
                               activeBottomTab === "preview"
-                                ? "border-cyan-400 text-white font-semibold"
-                                : "border-transparent text-slate-400 hover:text-slate-200"
+                                ? "border-[#82CDBD] text-[#F4F7F6] font-semibold"
+                                : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
                             }`}
                           >
-                            <Globe className="h-3.5 w-3.5 text-cyan-400" />
+                            <Globe className="h-3.5 w-3.5 text-[#6BCDB4]" />
                             <span>Preview</span>
                           </button>
                         )}
@@ -1489,25 +1433,25 @@ export default function CodingEnvironment({
                       <div className="flex items-center gap-3">
                         {activeBottomTab === "evaluation" ? (
                           <>
-                            <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                            <span className="text-[11px] text-[#71807C] flex items-center gap-1.5">
                               <span>Ran 4 tests</span>
                               <span>•</span>
-                              <span className="text-rose-400 font-semibold">4 failed</span>
+                              <span className="text-[#F06A6A] font-semibold">4 failed</span>
                               <span>⏱ 2.4s</span>
                             </span>
 
                             <button
                               onClick={handleRunEvaluation}
                               disabled={evaluating}
-                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition-colors cursor-pointer"
+                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#11181A] hover:bg-[#151D1F] text-[#F4F7F6] border border-[#202A2C] text-xs transition-colors cursor-pointer"
                             >
-                              <RotateCcw className="h-3 w-3 text-slate-400" />
+                              <RotateCcw className="h-3 w-3 text-[#A9B5B2]" />
                               <span>Re-run</span>
                             </button>
 
                             <button
                               onClick={() => setEvalResults(null)}
-                              className="p-1 hover:text-slate-200 text-slate-400 transition-colors"
+                              className="p-1 hover:text-[#F4F7F6] text-[#71807C] transition-colors"
                               title="Clear results"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -1522,7 +1466,7 @@ export default function CodingEnvironment({
                                   `➜ ${new Date().toLocaleTimeString()} New terminal session`,
                                 ]);
                               }}
-                              className="p-1 hover:text-slate-200 text-slate-400 transition-colors cursor-pointer"
+                              className="p-1 hover:text-[#F4F7F6] text-[#71807C] transition-colors cursor-pointer"
                               title="New Terminal"
                             >
                               <Plus className="h-3.5 w-3.5" />
@@ -1530,7 +1474,7 @@ export default function CodingEnvironment({
 
                             <button
                               onClick={() => setTerminalLogs([])}
-                              className="p-1 hover:text-slate-200 text-slate-400 transition-colors cursor-pointer"
+                              className="p-1 hover:text-[#F4F7F6] text-[#71807C] transition-colors cursor-pointer"
                               title="Clear terminal"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -1541,7 +1485,7 @@ export default function CodingEnvironment({
                         {/* Maximize / Minimize toggle */}
                         <button
                           onClick={toggleTerminalExpand}
-                          className="p-1 hover:text-slate-200 text-slate-400 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+                          className="p-1 hover:text-[#F4F7F6] text-[#71807C] rounded hover:bg-[#151D1F] transition-colors cursor-pointer"
                           title={panelExpanded ? "Collapse panel" : "Expand panel"}
                         >
                           {panelExpanded ? (
@@ -1554,27 +1498,25 @@ export default function CodingEnvironment({
                     </div>
 
                     {/* Panel Tab Content */}
-                    <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+                    <div className="flex-1 overflow-hidden flex flex-col min-h-0 bg-[#080C0D]">
                       {activeBottomTab === "terminal" && (
-                        <div className="flex-1 p-3 overflow-y-auto font-mono text-xs text-slate-300 space-y-1 select-text flex flex-col justify-between">
+                        <div className="flex-1 p-3 overflow-y-auto font-mono text-xs text-[#A9B5B2] space-y-1 select-text flex flex-col justify-between">
                           <div className="space-y-1 overflow-y-auto flex-1">
                             {terminalLogs.map((log, i) => (
                               <div
                                 key={i}
                                 className={`${
                                   log.includes("✔") || log.includes("[PASS]")
-                                    ? "text-emerald-400 font-semibold"
+                                    ? "text-[#67D6B2] font-semibold"
                                     : log.includes("❌") || log.includes("[FAIL]")
-                                    ? "text-rose-400 font-semibold"
+                                    ? "text-[#F06A6A] font-semibold"
                                     : log.includes("🎉")
-                                    ? "text-amber-300 font-bold"
+                                    ? "text-[#E9C46A] font-bold"
                                     : log.includes("http")
-                                    ? "text-cyan-300"
+                                    ? "text-[#82CDBD]"
                                     : log.startsWith("➜")
-                                    ? "text-indigo-300 font-bold"
-                                    : log.startsWith("=") || log.startsWith("📌")
-                                    ? "text-slate-400"
-                                    : "text-slate-300"
+                                    ? "text-[#6BCDB4] font-bold"
+                                    : "text-[#A9B5B2]"
                                 }`}
                               >
                                 {log}
@@ -1592,20 +1534,20 @@ export default function CodingEnvironment({
                                 setTerminalInput("");
                                 handleRunCode(cmd, args);
                               }}
-                              className="flex items-center gap-2 pt-2 mt-1 border-t border-slate-800/60"
+                              className="flex items-center gap-2 pt-2 mt-1 border-t border-[#202A2C]"
                             >
-                              <span className="text-emerald-400 font-bold">➜</span>
+                              <span className="text-[#67D6B2] font-bold">➜</span>
                               <input
                                 type="text"
                                 value={terminalInput}
                                 onChange={(e) => setTerminalInput(e.target.value)}
                                 placeholder="Run command (e.g. node test.js, node server.js)..."
-                                className="flex-1 bg-transparent text-white font-mono text-xs outline-none placeholder:text-slate-600"
+                                className="flex-1 bg-transparent text-[#F4F7F6] font-mono text-xs outline-none placeholder-[#71807C]"
                               />
                               <button
                                 type="submit"
                                 disabled={runningCode}
-                                className="px-2 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300 hover:text-white border border-slate-700 hover:bg-slate-700 transition-colors"
+                                className="px-2 py-0.5 rounded bg-[#11181A] text-[10px] text-[#A9B5B2] hover:text-[#F4F7F6] border border-[#202A2C] hover:bg-[#151D1F] transition-colors"
                               >
                                 Execute
                               </button>
@@ -1615,13 +1557,13 @@ export default function CodingEnvironment({
                       )}
 
                       {activeBottomTab === "evaluation" && (
-                        <div className="flex-1 p-4 overflow-y-auto space-y-3 font-sans select-text bg-[#0c1017]">
+                        <div className="flex-1 p-4 overflow-y-auto space-y-3 font-sans select-text bg-[#080C0D]">
                           {/* Banner */}
-                          <div className="flex items-start gap-3 p-3.5 rounded-xl bg-rose-950/30 border border-rose-800/40">
-                            <XCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+                          <div className="flex items-start gap-3 p-3.5 rounded-xl bg-[#11181A] border border-[#F06A6A]/30">
+                            <XCircle className="h-5 w-5 text-[#F06A6A] shrink-0 mt-0.5" />
                             <div>
-                              <h3 className="text-sm font-bold text-white">Evaluation failed</h3>
-                              <p className="text-xs text-rose-300/90 mt-0.5">
+                              <h3 className="text-sm font-bold text-[#F4F7F6]">Evaluation failed</h3>
+                              <p className="text-xs text-[#A9B5B2] mt-0.5">
                                 0 / 4 tests passed. Fix the issues below and try again.
                               </p>
                             </div>
@@ -1649,14 +1591,14 @@ export default function CodingEnvironment({
                             ]).map((crit, idx) => (
                               <div
                                 key={idx}
-                                className="p-3 rounded-xl bg-[#111622] border border-slate-800/80 space-y-1"
+                                className="p-3 rounded-xl bg-[#0D1214] border border-[#202A2C] space-y-1"
                               >
-                                <div className="flex items-center gap-2 text-xs font-semibold text-rose-400 font-mono">
-                                  <X className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+                                <div className="flex items-center gap-2 text-xs font-semibold text-[#F06A6A] font-mono">
+                                  <X className="h-3.5 w-3.5 text-[#F06A6A] shrink-0" />
                                   <span>[FAILED] {crit.title}</span>
                                 </div>
                                 {crit.feedback && (
-                                  <p className="text-[11px] text-slate-400 pl-5.5 font-mono leading-relaxed">
+                                  <p className="text-[11px] text-[#71807C] pl-5.5 font-mono leading-relaxed">
                                     {crit.feedback}
                                   </p>
                                 )}
@@ -1667,7 +1609,7 @@ export default function CodingEnvironment({
                       )}
 
                       {activeBottomTab === "problems" && (
-                        <div className="p-3 text-slate-400 py-6 text-center text-xs">
+                        <div className="p-3 text-[#71807C] py-6 text-center text-xs">
                           No syntax or linter problems detected in open files.
                         </div>
                       )}
@@ -1701,7 +1643,7 @@ export default function CodingEnvironment({
             minSize="15%"
             maxSize="45%"
             collapsible={true}
-            className="bg-[#0b0f19] flex flex-col overflow-hidden"
+            className="bg-[#0D1214] flex flex-col overflow-hidden"
           >
             <AiMentor
               currentTask={currentTask}
@@ -1711,6 +1653,10 @@ export default function CodingEnvironment({
               onClearExternalPrompt={() => setExternalAiPrompt(null)}
               files={project?.files}
               modifiedFiles={modifiedFilesList}
+              evalResults={evalResults}
+              activeHint={activeHint}
+              onClearHint={() => setActiveHint(null)}
+              userName={user?.name || "Tanishq"}
               onNudgeReceived={(nudge) => {
                 setActiveHint(nudge);
                 // If the nudge specifies a target file and it's not currently open, switch to it

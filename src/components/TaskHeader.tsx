@@ -105,21 +105,21 @@ export default function TaskHeader({
   };
 
   return (
-    <div className="w-full h-full bg-[#0d1117] flex flex-col overflow-hidden select-none border-b border-slate-800/80">
+    <div className="w-full h-full bg-[#0D1214] flex flex-col overflow-hidden select-none border-b border-[#202A2C]">
       {/* ── Top Bar: Navigation, In Progress Badge & Actions ── */}
-      <div className="px-5 py-2.5 bg-[#0b0f15] border-b border-slate-800/80 flex items-center justify-between gap-3 shrink-0">
+      <div className="px-5 py-2.5 bg-[#080C0D] border-b border-[#202A2C] flex items-center justify-between gap-3 shrink-0">
         {/* Left: ← Task 1 of 5 < > [In progress] */}
         <div className="flex items-center gap-3">
           <button
             onClick={onPrevTask}
             disabled={currentIndex <= 0}
-            className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="p-1 rounded text-[#71807C] hover:text-[#F4F7F6] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             title="Previous Task"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
 
-          <span className="text-xs font-medium text-slate-300">
+          <span className="text-xs font-medium text-[#A9B5B2]">
             Task {currentIndex + 1} of {totalTasks || 5}
           </span>
 
@@ -127,7 +127,7 @@ export default function TaskHeader({
             <button
               onClick={onPrevTask}
               disabled={currentIndex <= 0}
-              className="p-0.5 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="p-0.5 text-[#71807C] hover:text-[#F4F7F6] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               title="Previous"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
@@ -135,14 +135,14 @@ export default function TaskHeader({
             <button
               onClick={onNextTask}
               disabled={currentIndex >= totalTasks - 1}
-              className="p-0.5 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              className="p-0.5 text-[#71807C] hover:text-[#F4F7F6] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               title="Next"
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
 
-          <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-950/40 text-emerald-400 border border-emerald-500/30 shrink-0">
+          <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-[#67D6B2]/15 text-[#67D6B2] border border-[#67D6B2]/30 shrink-0">
             {taskCompleted ? "Completed" : "In progress"}
           </span>
         </div>
@@ -153,11 +153,11 @@ export default function TaskHeader({
             <button
               onClick={onStartServer}
               disabled={startingServer}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141a24] hover:bg-slate-800 text-slate-200 border border-slate-700/60 text-xs font-medium shadow-sm transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#11181A] hover:bg-[#151D1F] text-[#F4F7F6] border border-[#202A2C] text-xs font-medium shadow-sm transition-all cursor-pointer"
               title="Open Live Preview in new tab"
             >
               <span>Open Preview</span>
-              <svg className="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-3 w-3 text-[#A9B5B2]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
             </button>
@@ -166,17 +166,17 @@ export default function TaskHeader({
           <button
             onClick={onRunEvaluation}
             disabled={evaluating}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#2dd4bf] hover:bg-[#14b8a6] text-slate-950 text-xs font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#82CDBD] hover:bg-[#6BCDB4] text-[#080C0D] text-xs font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
             title="Evaluate solution against test cases"
           >
             {evaluating ? (
               <>
-                <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-950" />
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#080C0D]" />
                 <span>Evaluating...</span>
               </>
             ) : (
               <>
-                <CheckCircle2 className="h-3.5 w-3.5 text-slate-950" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-[#080C0D]" />
                 <span>Evaluate</span>
               </>
             )}
@@ -185,14 +185,14 @@ export default function TaskHeader({
       </div>
 
       {/* ── Main Task Title, Description & Files You'll Work With ── */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 bg-[#0c1017] space-y-4">
+      <div className="flex-1 overflow-y-auto px-6 py-4 bg-[#0D1214] space-y-4">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
           {/* Left: Big Title and Description */}
           <div className="space-y-2 max-w-2xl flex-1">
-            <h1 className="text-xl font-bold text-white tracking-tight">
+            <h1 className="text-xl font-bold text-[#F4F7F6] tracking-tight">
               {currentTask.title || "Implement GET /api/feedback"}
             </h1>
-            <p className="text-xs text-slate-400 leading-relaxed">
+            <p className="text-xs text-[#A9B5B2] leading-relaxed">
               {currentTask.description ||
                 "Connect the feedback list to the database by implementing the GET /api/feedback route handler. The endpoint must retrieve all saved feedback entries from the database and return them as a JSON array."}
             </p>
@@ -200,13 +200,12 @@ export default function TaskHeader({
 
           {/* Right: Files you'll work with */}
           <div className="shrink-0 space-y-1.5 min-w-[170px]">
-            <div className="text-[11px] font-medium text-slate-400">
+            <div className="text-[11px] font-medium text-[#71807C]">
               Files you&apos;ll work with
             </div>
             <div className="flex flex-col gap-1.5">
               {targetFiles.map((file) => {
                 const basename = file.split("/").pop() || file;
-                const badge = getFileBadgeColor(basename);
                 const isActive =
                   activeFilePath === file || activeFilePath.endsWith("/" + basename);
 
@@ -216,13 +215,13 @@ export default function TaskHeader({
                     onClick={() => onSelectFile(file)}
                     className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs font-mono transition-all text-left cursor-pointer ${
                       isActive
-                        ? "bg-slate-800/90 text-white font-medium shadow-sm border border-slate-700"
-                        : "bg-[#141a24] text-slate-300 hover:text-white hover:bg-slate-800/60 border border-slate-800/80"
+                        ? "bg-[#151D1F] text-[#F4F7F6] font-medium shadow-sm border border-[#2A3739]"
+                        : "bg-[#11181A] text-[#A9B5B2] hover:text-[#F4F7F6] hover:bg-[#151D1F] border border-[#202A2C]"
                     }`}
                     title={`Open ${file}`}
                   >
                     <span
-                      className={`text-[9px] font-bold px-1 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono`}
+                      className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono"
                     >
                       JS
                     </span>
@@ -233,6 +232,7 @@ export default function TaskHeader({
             </div>
           </div>
         </div>
+
 
         {/* Goal / Objective Card (visible or revealed when resized taller) */}
         {currentTask.goal && currentTask.goal !== currentTask.description && (

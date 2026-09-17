@@ -14,6 +14,7 @@ import {
   FileText,
   FileJson,
   File,
+  Folder,
   FolderOpen,
   FolderClosed,
   FilePlus,
@@ -23,6 +24,7 @@ import {
   Pencil,
   AlertTriangle,
   FoldVertical,
+  Sparkles,
   Lock,
 } from "lucide-react";
 import {
@@ -98,10 +100,33 @@ const HIDDEN = new Set(["node_modules", ".git", ".next", ".cache", ".turbo"]);
 
 function getFileIcon(name: string) {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
+
+  if (name === "package.json") {
+    return (
+      <span className="text-[12px] font-mono font-bold text-[#E2E8F0] shrink-0 leading-none px-0.5">
+        &#123;&#125;
+      </span>
+    );
+  }
+
+  if (name === ".env.example" || name.startsWith(".env")) {
+    return (
+      <FileText className="h-4 w-4 text-[#CBD5E1] shrink-0 stroke-[1.6]" />
+    );
+  }
+
+  if (name === "README.md" || ext === "md" || ext === "markdown") {
+    return (
+      <span className="text-[9.5px] font-sans font-bold px-1.5 py-0.5 rounded-[4px] bg-[#1E293B] text-white border border-[#334155] shrink-0 leading-none">
+        M
+      </span>
+    );
+  }
+
   switch (ext) {
     case "json":
       return (
-        <span className="text-[10px] font-mono font-bold text-slate-300 shrink-0 leading-none">
+        <span className="text-[12px] font-mono font-bold text-[#E2E8F0] shrink-0 leading-none px-0.5">
           &#123;&#125;
         </span>
       );
@@ -110,43 +135,37 @@ function getFileIcon(name: string) {
     case "mjs":
     case "cjs":
       return (
-        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-yellow-400/20 text-yellow-300 border border-yellow-500/30 shrink-0 leading-none">
+        <span className="text-[9.5px] font-sans font-bold px-1 py-0.5 rounded-[4px] bg-[#F7DF1E] text-black shrink-0 leading-none shadow-sm">
           JS
         </span>
       );
     case "ts":
     case "tsx":
       return (
-        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-cyan-400/20 text-cyan-300 border border-cyan-500/30 shrink-0 leading-none">
+        <span className="text-[9.5px] font-sans font-bold px-1 py-0.5 rounded-[4px] bg-[#3178C6] text-white shrink-0 leading-none shadow-sm">
           TS
+        </span>
+      );
+    case "html":
+    case "htm":
+      return (
+        <span className="text-[10px] font-sans font-black px-1.5 py-0.5 rounded-[3px] bg-[#E34F26] text-white shrink-0 leading-none shadow-sm">
+          5
         </span>
       );
     case "css":
     case "scss":
     case "less":
-      return <FileCode className="h-3.5 w-3.5 text-purple-400 shrink-0" />;
-    case "html":
-      return (
-        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-orange-600/30 text-orange-400 border border-orange-500/30 shrink-0 leading-none">
-          5
-        </span>
-      );
-    case "md":
-    case "mdx":
-      return (
-        <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-slate-700/60 text-slate-300 border border-slate-600/50 shrink-0 leading-none">
-          M
-        </span>
-      );
+      return <FileCode className="h-4 w-4 text-[#A855F7] shrink-0 stroke-[1.6]" />;
     case "svg":
     case "png":
     case "jpg":
     case "jpeg":
     case "gif":
     case "ico":
-      return <File className="h-3.5 w-3.5 text-pink-400 shrink-0" />;
+      return <File className="h-4 w-4 text-[#EC4899] shrink-0 stroke-[1.6]" />;
     default:
-      return <FileText className="h-3.5 w-3.5 text-slate-400 shrink-0" />;
+      return <FileText className="h-4 w-4 text-[#94A3B8] shrink-0 stroke-[1.6]" />;
   }
 }
 
@@ -424,25 +443,26 @@ function TreeNodeRow({
     const isCreatingInside = createPrompt?.parentPath === node.path;
 
     return (
-      <div className="select-none">
+      <div className="select-none w-full">
         <div
           onContextMenu={(e) => onContextMenu(e, node)}
           onClick={() => onToggle(node.path)}
-          className="w-full flex items-center justify-between py-[4px] pr-2 text-xs font-medium text-slate-300 hover:bg-slate-800/60 hover:text-white transition-colors rounded-sm cursor-pointer group"
-          style={{ paddingLeft: `${depth * 14 + 8}px` }}
+          className="w-full flex items-center justify-between py-1.5 px-2 text-sm transition-colors rounded-md cursor-pointer group hover:bg-[#11181A]"
         >
-          <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate">
+          <div className="flex items-center gap-2 min-w-0 flex-1 truncate">
             {isOpen ? (
-              <ChevronDown className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+              <ChevronDown className="h-3.5 w-3.5 text-[#CBD5E1] shrink-0 stroke-[2]" />
             ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+              <ChevronRight className="h-3.5 w-3.5 text-[#94A3B8] shrink-0 stroke-[2]" />
             )}
-            {isOpen ? (
-              <FolderOpen className="h-4 w-4 text-sky-400 fill-sky-400/20 shrink-0" />
-            ) : (
-              <FolderClosed className="h-4 w-4 text-sky-400/80 fill-sky-400/10 shrink-0" />
-            )}
-            <span className="truncate text-slate-300 group-hover:text-white">
+            <Folder className="h-4 w-4 text-[#00B4D8] fill-transparent stroke-[1.8] shrink-0" />
+            <span
+              className={`truncate tracking-wide ${
+                depth === 0
+                  ? "font-bold text-white text-[13.5px]"
+                  : "font-semibold text-[#F1F5F9] text-[13px]"
+              }`}
+            >
               {node.name}
             </span>
           </div>
@@ -454,37 +474,30 @@ function TreeNodeRow({
           >
             <button
               onClick={() => onStartCreate(node.path, "file")}
-              className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-indigo-300 transition-colors"
+              className="p-1 rounded hover:bg-[#1C2629] text-[#71807C] hover:text-[#67D6B2] transition-colors"
               title={`New File inside ${node.name}`}
             >
-              <FilePlus className="h-3.5 w-3.5" />
+              <FilePlus className="h-3 w-3" />
             </button>
             <button
               onClick={() => onStartCreate(node.path, "folder")}
-              className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-indigo-300 transition-colors"
+              className="p-1 rounded hover:bg-[#1C2629] text-[#71807C] hover:text-[#67D6B2] transition-colors"
               title={`New Folder inside ${node.name}`}
             >
-              <FolderPlus className="h-3.5 w-3.5" />
+              <FolderPlus className="h-3 w-3" />
             </button>
-            {isCore ? (
-              <span
-                className="p-1 text-slate-600 cursor-not-allowed"
-                title="Core project directory cannot be renamed or deleted"
-              >
-                <Lock className="h-3 w-3" />
-              </span>
-            ) : (
+            {!isCore && (
               <>
                 <button
                   onClick={() => onStartRename(node)}
-                  className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                  className="p-1 rounded hover:bg-[#1C2629] text-[#71807C] hover:text-[#E9C46A] transition-colors cursor-pointer"
                   title="Rename folder"
                 >
                   <Pencil className="h-3 w-3" />
                 </button>
                 <button
                   onClick={() => onStartDelete(node)}
-                  className="p-1 rounded hover:bg-rose-900/50 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
+                  className="p-1 rounded hover:bg-rose-900/30 text-[#71807C] hover:text-rose-400 transition-colors cursor-pointer"
                   title="Delete folder"
                 >
                   <Trash2 className="h-3 w-3" />
@@ -494,9 +507,9 @@ function TreeNodeRow({
           </div>
         </div>
 
-        {/* Children & Inline creation input inside this folder */}
+        {/* Children indented with vertical guide line matching mockup */}
         {isOpen && (
-          <div>
+          <div className="relative ml-[14px] pl-[12px] border-l border-[#26383B] space-y-0.5 my-0.5">
             {isCreatingInside && (
               <InlineCreationInput
                 depth={depth + 1}
@@ -538,49 +551,33 @@ function TreeNodeRow({
     <div
       onContextMenu={(e) => onContextMenu(e, node)}
       onClick={() => onSelectFile(node.path)}
-      className={`w-full flex items-center justify-between py-[5px] pr-2 text-xs font-mono transition-all rounded-md cursor-pointer group ${
+      className={`w-full flex items-center justify-between py-1.5 px-2 text-[13.5px] transition-all rounded-md cursor-pointer group ${
         isActive
-          ? "bg-[#161d2a] text-white font-medium shadow-sm"
-          : "text-slate-400 hover:bg-slate-800/40 hover:text-slate-200"
+          ? "bg-[#162022] text-white font-medium"
+          : "text-[#E2E8F0] hover:bg-[#11181A] hover:text-white"
       }`}
-      style={{ paddingLeft: `${depth * 14 + 20}px` }}
     >
-      <div className="flex items-center gap-2 min-w-0 flex-1 truncate">
+      <div className="flex items-center gap-2.5 min-w-0 flex-1 truncate">
         {getFileIcon(node.name)}
-        <span className="truncate">{node.name}</span>
+        <span className="truncate tracking-wide">{node.name}</span>
       </div>
 
-
-
-      {isCore ? (
-        <div
-          className="flex items-center gap-1 opacity-50 group-hover:opacity-90 transition-opacity ml-auto"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <span
-            className="flex items-center gap-1 text-[9px] font-sans px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700/50 cursor-default"
-            title="Core project file (cannot be deleted or renamed)"
-          >
-            <Lock className="h-2.5 w-2.5 text-slate-400" />
-            <span className="text-[9px] uppercase tracking-wider font-semibold">Core</span>
-          </span>
-        </div>
-      ) : (
-        /* Action buttons on hover for custom user files */
+      {/* Action buttons on hover for custom user files */}
+      {!isCore && (
         <div
           className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
           onClick={(e) => e.stopPropagation()}
         >
           <button
             onClick={() => onStartRename(node)}
-            className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+            className="p-1 rounded hover:bg-[#1C2629] text-[#71807C] hover:text-[#E9C46A] transition-colors cursor-pointer"
             title="Rename file"
           >
             <Pencil className="h-3 w-3" />
           </button>
           <button
             onClick={() => onStartDelete(node)}
-            className="p-1 rounded hover:bg-rose-900/50 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
+            className="p-1 rounded hover:bg-rose-900/30 text-[#71807C] hover:text-rose-400 transition-colors cursor-pointer"
             title="Delete file"
           >
             <Trash2 className="h-3 w-3" />
@@ -636,11 +633,22 @@ export default function FileTree({
         nodes = buildTreeFromFiles(currentFiles);
       }
       setTree(nodes);
-      // Auto-expand top-level directories on first load
+      // Auto-expand directories on first load (e.g. backend, frontend, and src)
       setExpanded((prev) => {
         if (prev.size === 0) {
-          const topDirs = nodes.filter((n) => n.isDirectory).map((n) => n.path);
-          return new Set(topDirs);
+          const allDirs: string[] = [];
+          const collectDirs = (list: TreeNode[], depth = 1) => {
+            for (const n of list) {
+              if (n.isDirectory) {
+                allDirs.push(n.path);
+                if (n.children && depth < 2) {
+                  collectDirs(n.children, depth + 1);
+                }
+              }
+            }
+          };
+          collectDirs(nodes, 1);
+          return new Set(allDirs);
         }
         return prev;
       });
@@ -820,42 +828,42 @@ export default function FileTree({
   return (
     <div
       ref={containerRef}
-      className="flex flex-col h-full select-none bg-[#111625] relative text-slate-300"
+      className="flex flex-col h-full select-none bg-[#080C0D] relative text-[#E2E8F0]"
       onContextMenu={(e) => handleContextMenu(e, null)}
     >
       {/* Header bar */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800/80 bg-[#0d121f]">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          Explorer
+      <div className="flex items-center justify-between px-3 py-2.5 bg-[#080C0D]">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-[#94A3B8]">
+          EXPLORER
         </span>
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1.5">
           <button
             onClick={() => handleStartCreate(".", "file")}
-            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-indigo-300 transition-colors"
+            className="h-6 w-6 rounded-md border border-[#202A2C] bg-[#11181A] hover:bg-[#1A2427] text-[#94A3B8] hover:text-[#F4F7F6] flex items-center justify-center transition-colors"
             title="New File at Root"
           >
             <FilePlus className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => handleStartCreate(".", "folder")}
-            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-indigo-300 transition-colors"
+            className="h-6 w-6 rounded-md border border-[#202A2C] bg-[#11181A] hover:bg-[#1A2427] text-[#94A3B8] hover:text-[#F4F7F6] flex items-center justify-center transition-colors"
             title="New Folder at Root"
           >
             <FolderPlus className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={handleCollapseAll}
-            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
-            title="Collapse All"
+            className="h-6 w-6 rounded-md border border-[#202A2C] bg-[#11181A] hover:bg-[#1A2427] text-[#94A3B8] hover:text-[#F4F7F6] flex items-center justify-center transition-colors"
+            title="Collapse All Folders"
           >
-            <FoldVertical className="h-3.5 w-3.5" />
+            <Sparkles className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={loadTree}
-            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
-            title="Refresh"
+            className="h-6 w-6 rounded-md border border-[#202A2C] bg-[#11181A] hover:bg-[#1A2427] text-[#94A3B8] hover:text-[#F4F7F6] flex items-center justify-center transition-colors"
+            title="Refresh Explorer"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-indigo-400" : ""}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin text-[#6BCDB4]" : ""}`} />
           </button>
         </div>
       </div>

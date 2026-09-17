@@ -166,17 +166,22 @@ export default function CodeEditor({
   const activePathRef = useRef(activePath);
   activePathRef.current = activePath;
 
-  const [bubblePos, setBubblePos] = useState<{
+  const [whyWorksOpen, setWhyWorksOpen] = useState(false);
+
+  // ── Calculate Position of Floating Popover & Connector Line ──────────
+  const [popoverPos, setPopoverPos] = useState<{
     top: number;
     left: number;
-    beakOffset: number;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
     visible: boolean;
   } | null>(null);
 
-  // ── Calculate Position of Floating Aria Speech Bubble ───────────────
   const updateBubblePosition = useCallback(() => {
     if (!editorRef.current || !activeHintRef.current) {
-      setBubblePos(null);
+      setPopoverPos(null);
       return;
     }
 
@@ -197,20 +202,19 @@ export default function CodeEditor({
       (Boolean(activeBase) && Boolean(hintBase) && activeBase === hintBase);
 
     if (!isMatch || !hint.startLine) {
-      setBubblePos(null);
+      setPopoverPos(null);
       return;
     }
 
     const model = editor.getModel();
     if (!model) {
-      setBubblePos(null);
+      setPopoverPos(null);
       return;
     }
 
     const lineCount = model.getLineCount();
     const targetLine = Math.max(1, Math.min(hint.startLine, lineCount));
     const lineContent = model.getLineContent(targetLine) || "";
-    // Target column right after the line's code
     const targetCol = Math.max(lineContent.length + 3, 1);
 
     const pos = editor.getScrolledVisiblePosition({
@@ -219,8 +223,7 @@ export default function CodeEditor({
     });
 
     if (!pos) {
-      // Scrolled off-screen
-      setBubblePos((prev) => (prev ? { ...prev, visible: false } : null));
+      setPopoverPos((prev) => (prev ? { ...prev, visible: false } : null));
       return;
     }
 
@@ -228,39 +231,36 @@ export default function CodeEditor({
     const editorWidth = domNode ? domNode.clientWidth : 750;
     const editorHeight = domNode ? domNode.clientHeight : 500;
 
-    const bubbleWidth = 330;
-    const bubbleHeight = 155;
+    const cardWidth = hint.isError ? 290 : 340;
+    const cardHeight = hint.isError ? 75 : 180;
     const lineHeight = pos.height || 19;
     const lineCenterY = pos.top + lineHeight / 2;
+    const lineRightX = Math.max(pos.left + 24, 210);
 
-    // Horizontally: position to the right of code, but at least 220px from gutter
-    let left = Math.max(pos.left + 28, 220);
-    if (left + bubbleWidth > editorWidth - 16) {
-      left = Math.max(16, editorWidth - bubbleWidth - 16);
+    // Position popover to the right
+    let left = Math.max(lineRightX + 40, 260);
+    if (left + cardWidth > editorWidth - 16) {
+      left = Math.max(16, editorWidth - cardWidth - 16);
     }
 
-    // Vertically: align beak with line center
-    let defaultBeakOffset = 65;
-    let top = lineCenterY - defaultBeakOffset;
-
-    if (top < 12) {
-      top = 12;
-    } else if (top + bubbleHeight > editorHeight - 16) {
-      top = Math.max(12, editorHeight - bubbleHeight - 16);
+    let top = lineCenterY - 45;
+    if (top < 12) top = 12;
+    if (top + cardHeight > editorHeight - 16) {
+      top = Math.max(12, editorHeight - cardHeight - 16);
     }
 
-    // Dynamic beak offset so it points directly at lineCenterY
-    const beakOffset = Math.max(24, Math.min(bubbleHeight - 24, lineCenterY - top));
-
-    setBubblePos({
+    setPopoverPos({
       top,
       left,
-      beakOffset,
+      startX: lineRightX,
+      startY: lineCenterY,
+      endX: left,
+      endY: top + 40,
       visible: true,
     });
   }, []);
 
-  // ── Apply Monaco Line Highlight for "Need a Nudge" ─────────────────
+  // ── Apply Monaco Line Highlight for Error or Nudge ─────────────────
   const applyDecorations = useCallback(() => {
     if (!editorRef.current || !monacoRef.current) return;
     const editor = editorRef.current;
@@ -282,17 +282,18 @@ export default function CodeEditor({
     if (isMatchingFile && activeHint?.startLine) {
       const start = Math.max(1, activeHint.startLine);
       const end = Math.max(start, activeHint.endLine || start);
+      const isError = Boolean(activeHint.isError);
 
       const newDecorations = [
         {
           range: new monaco.Range(start, 1, end, 1),
           options: {
             isWholeLine: true,
-            className: "monaco-nudge-line-highlight",
-            linesDecorationsClassName: "monaco-nudge-gutter-indicator",
-            glyphMarginClassName: "monaco-nudge-glyph-margin",
-            glyphMarginHoverMessage: { value: `💡 **Aria**: ${activeHint.hint}` },
-            hoverMessage: { value: `💡 **Aria**: ${activeHint.hint}` },
+            className: isError ? "monaco-error-line-highlight" : "monaco-nudge-line-highlight",
+            linesDecorationsClassName: isError ? "monaco-error-gutter-indicator" : "monaco-nudge-gutter-indicator",
+            glyphMarginClassName: isError ? "monaco-error-glyph-margin" : "monaco-nudge-glyph-margin",
+            glyphMarginHoverMessage: { value: isError ? `❌ **Error**: ${activeHint.hint}` : `💡 **Hint**: ${activeHint.hint}` },
+            hoverMessage: { value: isError ? `❌ **Error**: ${activeHint.hint}` : `💡 **Hint**: ${activeHint.hint}` },
           },
         },
       ];
@@ -302,9 +303,7 @@ export default function CodeEditor({
         newDecorations
       );
 
-      // Smooth scroll to the highlighted lines
       editor.revealLineInCenter(start);
-      // Position floating speech bubble
       setTimeout(updateBubblePosition, 60);
     } else {
       if (decorationsRef.current.length > 0) {
@@ -313,7 +312,7 @@ export default function CodeEditor({
           []
         );
       }
-      setBubblePos(null);
+      setPopoverPos(null);
     }
   }, [activeHint, activePath, updateBubblePosition]);
 
@@ -326,8 +325,6 @@ export default function CodeEditor({
     }, 120);
     return () => clearTimeout(timer);
   }, [applyDecorations, updateBubblePosition, currentContent]);
-
-  // ── Load file from WebContainer or cache ──────────────────────────
 
   // ── Load file from WebContainer or cache ──────────────────────────
 
@@ -356,7 +353,6 @@ export default function CodeEditor({
       setCurrentContent(content);
       onFileLoadedRef.current?.(content);
     } catch (err: any) {
-      // Check fallback from initial project files if WebContainer is still starting
       const cleanPath = path.replace(/^\/+/, "");
       const fallback = initialFilesRef.current?.find(
         (f) => f.path === path || f.path.replace(/^\/+/, "") === cleanPath
@@ -426,6 +422,32 @@ export default function CodeEditor({
       editorRef.current = editor;
       monacoRef.current = monaco;
 
+      // Define custom Nudge Dark theme matching DESIGN.md
+      monaco.editor.defineTheme("nudge-dark", {
+        base: "vs-dark",
+        inherit: true,
+        rules: [
+          { token: "comment", foreground: "71807C", fontStyle: "italic" },
+          { token: "keyword", foreground: "6BCDB4" },
+          { token: "string", foreground: "E9C46A" },
+          { token: "number", foreground: "76A8FF" },
+          { token: "identifier", foreground: "F4F7F6" },
+          { token: "type", foreground: "82CDBD" },
+        ],
+        colors: {
+          "editor.background": "#080C0D",
+          "editor.foreground": "#F4F7F6",
+          "editor.lineHighlightBackground": "#0D1214",
+          "editorCursor.foreground": "#82CDBD",
+          "editorLineNumber.foreground": "#4B5754",
+          "editorLineNumber.activeForeground": "#A9B5B2",
+          "editorGutter.background": "#080C0D",
+          "editorIndentGuide.background": "#151D1F",
+          "editorIndentGuide.activeBackground": "#202A2C",
+        },
+      });
+      monaco.editor.setTheme("nudge-dark");
+
       editor.onDidScrollChange(() => {
         updateBubblePosition();
       });
@@ -473,29 +495,24 @@ export default function CodeEditor({
     return path.split("/").pop() || path;
   }
 
-  const cleanActive = (activePath || "").replace(/^\/+/, "").toLowerCase();
-  const cleanHintFile = (activeHint?.targetFile || "").replace(/^\/+/, "").toLowerCase();
+  const cleanActive = (activePath || "").replace(/[`"'\s]/g, "").replace(/^\/+/, "").toLowerCase();
+  const cleanHintFile = (activeHint?.targetFile || "").replace(/[`"'\s]/g, "").replace(/^\/+/, "").toLowerCase();
   const activeBase = cleanActive.split("/").pop() || cleanActive;
   const hintBase = cleanHintFile.split("/").pop() || cleanHintFile;
 
   const isMatchingHintFile =
     Boolean(activeHint) &&
-    (cleanActive === cleanHintFile ||
+    (!cleanHintFile ||
+      cleanActive === cleanHintFile ||
       cleanActive.endsWith("/" + cleanHintFile) ||
       cleanHintFile.endsWith("/" + cleanActive) ||
       (Boolean(activeBase) && Boolean(hintBase) && activeBase === hintBase));
 
   return (
-    <div
-      className={`w-full h-full flex flex-col bg-[#161a26] relative ${
-        isFullscreen ? "fixed inset-0 z-50 bg-[#161a26]" : ""
-      }`}
-    >
-
-
-      {/* Tab Bar */}
-      <div className="h-10 flex items-center justify-between bg-[#111420] border-b border-[#1c2235] px-2 shrink-0 select-none overflow-x-auto">
-        <div className="flex items-center gap-1 overflow-x-auto">
+    <div className="flex flex-col h-full w-full bg-[#080C0D] text-[#F4F7F6] overflow-hidden">
+      {/* ── Tabs Bar ── */}
+      <div className="flex items-center justify-between bg-[#0D1214] border-b border-[#202A2C] px-2 min-h-[36px] overflow-x-auto shrink-0 select-none">
+        <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-1">
           {tabs.map((tab) => {
             const isActive = tab.path === activePath;
             const dirty = isTabDirty(tab.path);
@@ -503,17 +520,17 @@ export default function CodeEditor({
               <div
                 key={tab.path}
                 onClick={() => onSelectTab(tab.path)}
-                className={`group flex items-center gap-2 px-3 py-1.5 text-xs font-mono rounded-t cursor-pointer border-r border-[#1c2235] select-none transition-all ${
+                className={`group flex items-center gap-2 px-3 py-1 text-xs font-mono rounded cursor-pointer select-none transition-all ${
                   isActive
-                    ? "bg-[#181d2c] text-white border-t-2 border-t-amber-400 font-semibold"
-                    : "bg-[#0d101a] text-slate-400 hover:text-slate-200 hover:bg-[#131725] border-t-2 border-t-transparent"
+                    ? "bg-[#11181A] text-[#F4F7F6] border border-[#202A2C] border-b-transparent font-medium"
+                    : "text-[#71807C] hover:text-[#A9B5B2] hover:bg-[#11181A]/50 border border-transparent"
                 }`}
               >
                 {getTabBadge(tab.path)}
                 <span className="truncate max-w-[130px]">{tabName(tab.path)}</span>
 
                 {dirty && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#E9C46A] shrink-0" />
                 )}
 
                 <button
@@ -522,7 +539,7 @@ export default function CodeEditor({
                     onCloseTab(tab.path);
                     contentCache.current.delete(tab.path);
                   }}
-                  className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-slate-700 text-slate-500 hover:text-slate-200 transition-all"
+                  className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[#151D1F] text-[#71807C] hover:text-[#F4F7F6] transition-all"
                   title="Close tab"
                 >
                   <X className="h-3 w-3" />
@@ -534,39 +551,39 @@ export default function CodeEditor({
           {onNewTab && (
             <button
               onClick={onNewTab}
-              className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-              title="Add Tab / New File"
+              className="p-1.5 rounded hover:bg-[#151D1F] text-[#71807C] hover:text-[#F4F7F6] transition-colors"
+              title="Add Tab"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
           )}
 
           {savedFlash && (
-            <div className="ml-2 px-2 py-0.5 text-[10px] text-emerald-400 font-semibold animate-pulse">
+            <div className="ml-2 px-2 py-0.5 text-[10px] text-[#67D6B2] font-semibold animate-pulse">
               ✓ Saved
             </div>
           )}
 
-          {isMatchingHintFile && activeHint && (!bubblePos || !bubblePos.visible) && (
+          {isMatchingHintFile && activeHint && (!popoverPos || !popoverPos.visible) && (
             <button
               onClick={() => {
                 editorRef.current?.revealLineInCenter(activeHint.startLine);
                 setTimeout(updateBubblePosition, 50);
               }}
-              className="ml-2 px-2 py-0.5 text-[10px] font-medium text-amber-300 hover:text-white bg-amber-500/20 hover:bg-amber-500/30 rounded border border-amber-500/30 transition-colors flex items-center gap-1 shrink-0 animate-in fade-in"
+              className="ml-2 px-2 py-0.5 text-[10px] font-medium text-[#6BCDB4] hover:text-white bg-[#6BCDB4]/20 hover:bg-[#6BCDB4]/30 rounded border border-[#6BCDB4]/30 transition-colors flex items-center gap-1 shrink-0 animate-in fade-in"
               title="Jump to highlighted line"
             >
-              <Lightbulb className="w-3 h-3 text-amber-400" />
+              <Lightbulb className="w-3 h-3 text-[#6BCDB4]" />
               <span>Line {activeHint.startLine} Nudge</span>
             </button>
           )}
         </div>
 
         {/* Right Toolbar Controls */}
-        <div className="flex items-center gap-1 text-slate-400">
+        <div className="flex items-center gap-1 text-[#71807C]">
           <button
             onClick={() => setIsFullscreen((prev) => !prev)}
-            className="p-1.5 rounded hover:bg-slate-800 hover:text-white transition-colors"
+            className="p-1.5 rounded hover:bg-[#151D1F] hover:text-[#F4F7F6] transition-colors cursor-pointer"
             title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Editor"}
           >
             {isFullscreen ? (
@@ -578,19 +595,19 @@ export default function CodeEditor({
         </div>
       </div>
 
-      {/* Editor Area */}
-      <div className="flex-1 w-full relative overflow-hidden">
+      {/* ── Editor Area ── */}
+      <div className="flex-1 w-full relative overflow-hidden bg-[#080C0D]">
         {loadingFile ? (
-          <div className="flex items-center justify-center h-full text-xs text-slate-500">
+          <div className="flex items-center justify-center h-full text-xs text-[#71807C]">
             Loading file…
           </div>
         ) : fileError ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-500">
-            <AlertTriangle className="h-8 w-8 text-amber-500/60" />
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-[#71807C]">
+            <AlertTriangle className="h-8 w-8 text-[#E9C46A]/60" />
             <p className="text-xs">{fileError}</p>
           </div>
         ) : !activePath ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-600">
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-[#71807C]">
             <FileCode className="h-10 w-10" />
             <p className="text-xs">Select a file from the explorer or tabs</p>
           </div>
@@ -601,10 +618,10 @@ export default function CodeEditor({
               path={activePath}
               language={getLanguage(activePath)}
               value={currentContent}
-              theme="vs-dark"
+              theme="nudge-dark"
               options={{
                 fontSize: 13,
-                fontFamily: "'Fira Code', 'Cascadia Code', Consolas, monospace",
+                fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
                 fontLigatures: true,
                 minimap: { enabled: false },
                 glyphMargin: true,
@@ -613,8 +630,6 @@ export default function CodeEditor({
                 wordWrap: "on",
                 automaticLayout: true,
                 tabSize: 2,
-                renderWhitespace: "selection",
-                bracketPairColorization: { enabled: true },
                 padding: { top: 12 },
                 smoothScrolling: true,
                 cursorSmoothCaretAnimation: "on",
@@ -624,98 +639,121 @@ export default function CodeEditor({
               onMount={handleEditorMount}
             />
 
-            {/* ── Aria Speech Bubble Floating Beside Highlighted Line ── */}
-            {isMatchingHintFile && activeHint && bubblePos && bubblePos.visible && (
+            {/* ── SVG Curved Connector Line between Code Line & Popover ── */}
+            {isMatchingHintFile && activeHint && !activeHint.isError && popoverPos && popoverPos.visible && (
+              <svg
+                className="absolute inset-0 pointer-events-none"
+                style={{ width: "100%", height: "100%", zIndex: 30 }}
+              >
+                <path
+                  d={`M ${popoverPos.startX} ${popoverPos.startY} C ${popoverPos.startX + 30} ${popoverPos.startY}, ${popoverPos.endX - 30} ${popoverPos.endY}, ${popoverPos.endX} ${popoverPos.endY}`}
+                  fill="none"
+                  stroke="#6BCDB4"
+                  strokeWidth="1.5"
+                  strokeDasharray="4 2"
+                  opacity={0.85}
+                />
+              </svg>
+            )}
+
+            {/* ── Mode 1: Floating Evaluation Failed Error Tooltip ── */}
+            {isMatchingHintFile && activeHint && activeHint.isError && popoverPos && popoverPos.visible && (
               <div
                 style={{
-                  top: `${bubblePos.top}px`,
-                  left: `${bubblePos.left}px`,
+                  top: `${popoverPos.top}px`,
+                  left: `${popoverPos.left}px`,
                   zIndex: 35,
                 }}
-                className="absolute w-[335px] rounded-2xl bg-[#131627]/95 backdrop-blur-md border border-indigo-500/40 p-4 shadow-[0_0_25px_-4px_rgba(124,58,237,0.35),0_20px_30px_-10px_rgba(0,0,0,0.8)] transition-transform duration-75 select-none animate-in fade-in zoom-in-95"
+                className="absolute w-[290px] rounded-xl bg-[#11181A]/95 backdrop-blur-md border border-[#F06A6A]/60 p-3 shadow-2xl transition-all select-none animate-in fade-in"
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                {/* Pointer Beak pointing directly left to the code line */}
-                <div
-                  className="absolute -left-[13px] w-[14px] h-[18px] pointer-events-none"
-                  style={{
-                    top: `${bubblePos.beakOffset}px`,
-                    transform: "translateY(-50%)",
-                  }}
-                >
-                  <svg width="14" height="18" viewBox="0 0 14 18" fill="none">
-                    {/* Fill */}
-                    <polygon points="14,0 0,9 14,18" fill="#131627" />
-                    {/* Left point angled borders matching indigo border */}
-                    <polyline
-                      points="14,0 0,9 14,18"
-                      stroke="rgba(129, 140, 248, 0.55)"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
-
-                {/* Card Header: Avatar, Aria title, Close button */}
-                <div className="flex items-center justify-between pb-2 border-b border-white/[0.06]">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 shadow-sm border border-indigo-400/30">
-                      <svg
-                        className="w-3.5 h-3.5 text-white"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <circle cx="9" cy="11" r="1.2" fill="currentColor" />
-                        <circle cx="15" cy="11" r="1.2" fill="currentColor" />
-                        <path d="M9 16c.83.67 2.17.67 3 0" />
-                        <rect width="18" height="14" x="3" y="6" rx="4" />
-                      </svg>
-                    </div>
-                    <span className="text-white text-[13px] font-semibold tracking-tight">
-                      Aria
-                    </span>
+                <div className="flex items-start gap-2.5">
+                  <XCircle className="w-4 h-4 text-[#F06A6A] shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-[#F06A6A]">Evaluation failed</div>
+                    <p className="text-[11px] text-[#A9B5B2] mt-0.5 leading-snug">
+                      {activeHint.hint || "This line is causing an error. See details below."}
+                    </p>
                   </div>
-
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onClearHint?.();
                     }}
-                    className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    className="p-1 rounded text-[#71807C] hover:text-[#F4F7F6] transition-colors"
+                    title="Dismiss"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Mode 2: Floating AI Hint Popover with Socratic Guidance ── */}
+            {isMatchingHintFile && activeHint && !activeHint.isError && popoverPos && popoverPos.visible && (
+              <div
+                style={{
+                  top: `${popoverPos.top}px`,
+                  left: `${popoverPos.left}px`,
+                  zIndex: 35,
+                }}
+                className="absolute w-[340px] rounded-2xl bg-[#0D1214]/95 backdrop-blur-md border border-[#6BCDB4]/50 p-4 shadow-[0_12px_40px_rgba(0,0,0,0.5)] transition-all select-none animate-in fade-in"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {/* Header: Sparkle + AI Hint + Close */}
+                <div className="flex items-center justify-between pb-2.5 border-b border-[#202A2C]">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-[#6BCDB4]" />
+                    <span className="text-xs font-bold text-[#F4F7F6] tracking-tight">
+                      AI Hint
+                    </span>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onClearHint?.();
+                    }}
+                    className="p-1 rounded-md text-[#71807C] hover:text-[#F4F7F6] hover:bg-[#151D1F] transition-colors cursor-pointer"
                     title="Dismiss hint"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
-                {/* Card Body: The subtle hint text */}
-                <div className="py-2.5 text-[13px] text-slate-200/90 leading-relaxed font-normal select-text">
-                  {activeHint.hint}
+                {/* Body: Conceptual Guidance */}
+                <div className="py-2.5 space-y-2 select-text">
+                  <p className="text-xs text-[#F4F7F6] leading-relaxed">
+                    {activeHint.hint}
+                  </p>
+                  {activeHint.concept && (
+                    <div className="text-[11px] text-[#A9B5B2] leading-relaxed">
+                      Focus on: <span className="font-semibold text-[#82CDBD]">{activeHint.concept}</span>
+                    </div>
+                  )}
                 </div>
 
-                {/* Card Footer: "💡 Think: <concept>" pill badge/button */}
-                <div className="pt-1">
+                {/* Socratic Accordion: Why this works? */}
+                <div className="pt-2 border-t border-[#202A2C]">
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const promptText = activeHint.concept
-                        ? `Can you guide me on the concept: "${activeHint.concept}"?`
-                        : `Can you explain this hint in more detail?`;
-                      onTriggerAriaNudge?.(promptText);
-                    }}
-                    className="group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#1b1e36] border border-indigo-500/30 text-indigo-200 text-xs font-medium hover:bg-indigo-900/40 hover:border-indigo-400/50 hover:text-white transition-all cursor-pointer shadow-sm text-left max-w-full"
+                    onClick={() => setWhyWorksOpen((prev) => !prev)}
+                    className="flex items-center justify-between w-full text-left text-xs font-medium text-[#A9B5B2] hover:text-[#F4F7F6] transition-colors py-1 cursor-pointer"
                   >
-                    <Lightbulb className="w-3.5 h-3.5 text-indigo-400 group-hover:text-amber-300 transition-colors shrink-0" />
-                    <span className="truncate">
-                      Think: {activeHint.concept || "inspect this logic"}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <ChevronRight
+                        className={`w-3.5 h-3.5 text-[#6BCDB4] transition-transform duration-200 ${
+                          whyWorksOpen ? "rotate-90" : ""
+                        }`}
+                      />
+                      <span>Why this works?</span>
+                    </div>
                   </button>
+
+                  {whyWorksOpen && (
+                    <div className="mt-2 p-2.5 rounded-lg bg-[#11181A] border border-[#202A2C] text-[11px] text-[#A9B5B2] leading-relaxed select-text animate-in fade-in">
+                      Mongoose models provide <code className="text-[#82CDBD] font-mono">Feedback.find()</code> to query all documents. Chaining <code className="text-[#82CDBD] font-mono">.sort(&#123; createdAt: -1 &#125;)</code> orders records from newest to oldest before returning them in <code className="text-[#82CDBD] font-mono">res.status(200).json(feedback)</code>.
+                    </div>
+                  )}
                 </div>
               </div>
             )}

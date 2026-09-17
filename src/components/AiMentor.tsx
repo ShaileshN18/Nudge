@@ -4,17 +4,18 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   Sparkles,
   Send,
-  RotateCcw,
-  Bot,
-  User,
-  FileCode,
-  HelpCircle,
-  Bug,
+  MoreVertical,
+  ChevronDown,
+  ChevronUp,
   ChevronRight,
+  Lightbulb,
+  XCircle,
+  CheckCircle2,
   Copy,
   Check,
-  Lightbulb,
   RefreshCw,
+  HelpCircle,
+  ArrowRight,
 } from "lucide-react";
 
 import { readProjectFile } from "@/lib/webcontainer";
@@ -48,7 +49,23 @@ interface AiMentorProps {
     endLine: number;
     hint: string;
     concept?: string;
+    isError?: boolean;
   }) => void;
+  evalResults?: {
+    passed: boolean;
+    criteriaStatus?: Array<{ title: string; passed: boolean; feedback?: string }>;
+    overallFeedback?: string;
+  } | null;
+  activeHint?: {
+    targetFile: string;
+    startLine: number;
+    endLine: number;
+    hint: string;
+    concept?: string;
+    isError?: boolean;
+  } | null;
+  onClearHint?: () => void;
+  userName?: string;
 }
 
 export default function AiMentor({
@@ -60,26 +77,20 @@ export default function AiMentor({
   files,
   modifiedFiles,
   onNudgeReceived,
+  evalResults,
+  activeHint,
+  onClearHint,
+  userName = "Tanishq",
 }: AiMentorProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome-1",
-      role: "assistant",
-      content: `### 👋 Hi, I'm your AI Mentor!
-
-I'm here to guide you through **Task ${currentTask?.order || 1}: ${
-        currentTask?.title || "Define User Model & Password Hashing"
-      }**.
-
-Ask me for code reviews, architectural explanations, or click **"Need a Nudge"** for subtle hints!`,
-      timestamp: new Date(),
-    },
-  ]);
-
+  // Chat messages
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isNudging, setIsNudging] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [evalFailedExpanded, setEvalFailedExpanded] = useState(true);
+  const [whyWorksExpanded, setWhyWorksExpanded] = useState(false);
+  const [hintLevel, setHintLevel] = useState(1);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -88,9 +99,9 @@ Ask me for code reviews, architectural explanations, or click **"Need a Nudge"**
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isLoading, isNudging]);
+  }, [messages, isLoading, isNudging, activeHint]);
 
-  // Handle external prompt trigger (e.g. from the Aria nudge tooltip!)
+  // Handle external prompt triggers
   useEffect(() => {
     if (externalPrompt) {
       handleSend(externalPrompt);
@@ -98,100 +109,52 @@ Ask me for code reviews, architectural explanations, or click **"Need a Nudge"**
     }
   }, [externalPrompt]);
 
+  // Progressive hints dictionary for Task 1
+  const hintProgression: Record<number, { title: string; hint: string; concept: string; why: string }> = {
+    1: {
+      title: "Hint 1 — Query the database",
+      hint: "You need to fetch all feedback entries using the Feedback model. Remember to sort them (newest or highest votes first) and return them as JSON.",
+      concept: "Query the database",
+      why: "Mongoose models provide Feedback.find() to query collections. Chaining .sort({ createdAt: -1 }) tells MongoDB to sort documents in reverse chronological order before returning them.",
+    },
+    2: {
+      title: "Hint 2 — Response Handling",
+      hint: "Look at what happens immediately after the database query resolves. Ensure the retrieved documents are returned with HTTP status 200 using Express's response methods.",
+      concept: "Express route response",
+      why: "Inside Express route handlers, res.status(200).json(data) formats the data into JSON and sends it back with the standard OK status.",
+    },
+    3: {
+      title: "Hint 3 — Model Methods",
+      hint: "Which Mongoose model method retrieves all matching records from a collection? Check backend/src/models/Feedback.js to see available helpers.",
+      concept: "Mongoose Feedback.find()",
+      why: "Calling await Feedback.find() returns an array of all documents stored in the database.",
+    },
+  };
+
   const handleNeedNudge = async () => {
     if (isNudging || isLoading || !currentTask) return;
     setIsNudging(true);
 
     try {
-      // 1. Read targetFiles directly from WebContainer (single source of truth)
-      const targetFilePaths = currentTask.targetFiles || [];
-      const targetFilesContent: Array<{ path: string; content: string }> = [];
+      const nextLevel = activeHint && !activeHint.isError ? Math.min(3, hintLevel + 1) : 1;
+      setHintLevel(nextLevel);
 
-      for (const p of targetFilePaths) {
-        const clean = p.replace(/^\/+/, "");
-        try {
-          const content = await readProjectFile(clean);
-          targetFilesContent.push({ path: clean, content });
-        } catch {
-          if (activeFilePath && clean === activeFilePath.replace(/^\/+/, "")) {
-            targetFilesContent.push({ path: clean, content: activeFileContent || "" });
-          } else {
-            const fallback = files?.find((f) => f.path.replace(/^\/+/, "") === clean);
-            targetFilesContent.push({ path: clean, content: fallback?.content || "" });
-          }
-        }
-      }
+      const targetFile = "backend/src/feedback.js";
+      const progressiveData = hintProgression[nextLevel] || hintProgression[1];
 
-      // 2. Build minimal, focused AI context
-      const aiContext = buildAIContext(currentTask, targetFilesContent);
-
-      const res = await fetch("/api/ai/nudge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          task: {
-            order: aiContext.taskOrder,
-            title: aiContext.taskTitle,
-            goal: aiContext.goal,
-            description: aiContext.description,
-            targetFiles: aiContext.targetFiles,
-            evaluationCriteria: aiContext.evaluationCriteria,
-          },
-          files: aiContext.files,
-          activeFilePath,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to generate hint");
-      }
-
-      const nudge = data.nudge;
-      const targetFile = nudge.targetFile || activeFilePath || "";
-      const lineText = nudge.startLine
-        ? ` (Inspect line ${nudge.startLine}${
-            nudge.endLine && nudge.endLine !== nudge.startLine
-              ? `-${nudge.endLine}`
-              : ""
-          })`
-        : "";
-
-      // Post gentle hint message
-      const hintMsg: ChatMessage = {
-        id: "nudge-" + Date.now(),
-        role: "assistant",
-        content: `### 💡 Gentle Nudge ${nudge.concept ? `• ${nudge.concept}` : ""}
-${nudge.hint}
-
-*Target: \`${targetFile}\`${lineText} — Highlighted in your editor.*`,
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, hintMsg]);
-
-      // Trigger line decoration in CodeEditor if line numbers provided
-      if (onNudgeReceived && nudge) {
+      // Trigger line decoration in CodeEditor
+      if (onNudgeReceived) {
         onNudgeReceived({
           targetFile,
-          startLine: nudge.startLine,
-          endLine: nudge.endLine || nudge.startLine,
-          hint: nudge.hint,
-          concept: nudge.concept,
+          startLine: 16,
+          endLine: 16,
+          hint: progressiveData.hint,
+          concept: progressiveData.concept,
+          isError: false,
         });
       }
     } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: "err-" + Date.now(),
-          role: "assistant",
-          content: `⚠️ **Could not generate hint:** ${
-            err?.message || "Please make sure GEMINI_API_KEY is configured in .env."
-          }`,
-          timestamp: new Date(),
-        },
-      ]);
+      console.error("Nudge error:", err);
     } finally {
       setIsNudging(false);
     }
@@ -221,7 +184,7 @@ ${nudge.hint}
           history: messages.map((m) => ({ role: m.role, content: m.content })),
           task: currentTask,
           activeFile: {
-            path: activeFilePath || "Post.jsx",
+            path: activeFilePath || "backend/src/feedback.js",
             content: activeFileContent || "",
           },
         }),
@@ -229,25 +192,26 @@ ${nudge.hint}
 
       const data = await response.json();
 
+      if (!response.ok || data.error || !data.reply) {
+        throw new Error(data.error || "Failed to get AI response");
+      }
+
       const assistantMessage: ChatMessage = {
         id: "ai-" + Date.now(),
         role: "assistant",
-        content:
-          data.reply ||
-          "I couldn't process that response right now. Please try again or rephrase your question!",
+        content: data.reply,
         timestamp: new Date(),
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Mentor chat error:", error);
       setMessages((prev) => [
         ...prev,
         {
           id: "err-" + Date.now(),
           role: "assistant",
-          content:
-            "⚠️ Network error while contacting the AI Mentor. Check your connection or console.",
+          content: error?.message || "Failed to reach AI service. Please check your API key and connection.",
           timestamp: new Date(),
         },
       ]);
@@ -263,84 +227,256 @@ ${nudge.hint}
     }
   };
 
-  const handleCopy = (id: string, text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 1500);
-  };
-
-  const handleResetChat = () => {
-    setMessages([
-      {
-        id: "welcome-" + Date.now(),
-        role: "assistant",
-        content: `### 🔄 Chat reset!
-Ready to assist with **Task ${currentTask?.order || 1}: ${
-          currentTask?.title || "Define User Model & Password Hashing"
-        }**. What would you like to explore?`,
-        timestamp: new Date(),
-      },
-    ]);
-  };
-
-  const quickPrompts = [
-    { label: "Review active file", prompt: "Please review my active file and identify any syntax or logical issues", icon: FileCode },
-    { label: "Explain requirements", prompt: "Can you explain the requirements and expected data flow for this task?", icon: HelpCircle },
-    { label: "Why is code failing?", prompt: "Why might my tests or route handlers fail?", icon: Bug },
-    { label: "Security best practices", prompt: "What are the security best practices for JWT tokens and password salts?", icon: Sparkles },
-  ];
+  const isEvalFailed = evalResults && !evalResults.passed;
+  const isHintActive = Boolean(activeHint && !activeHint.isError);
+  const currentHintInfo = hintProgression[hintLevel] || hintProgression[1];
 
   return (
-    <div className="w-full h-full flex flex-col bg-[#0b0f19] text-slate-200 select-none">
-      {/* Header */}
-      <div className="h-12 px-4 border-b border-slate-800/80 bg-[#0d1322] flex items-center justify-between shrink-0">
+    <div className="w-full h-full flex flex-col bg-[#0D1214] text-[#F4F7F6] select-none border-l border-[#202A2C]">
+      {/* ── Top Header ── */}
+      <div className="h-12 px-4 border-b border-[#202A2C] bg-[#080C0D] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5">
-          <div className="h-7 w-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shadow-sm">
+          {/* Green-accented Robot/Sparkle Glyph */}
+          <div className="h-7 w-7 rounded-lg bg-[#67D6B2]/10 border border-[#67D6B2]/20 flex items-center justify-center text-[#67D6B2]">
             <Sparkles className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="text-xs font-bold text-white tracking-wide flex items-center gap-1.5">
+            <h2 className="text-xs font-bold text-[#F4F7F6] tracking-tight flex items-center gap-1.5">
               AI Mentor
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#67D6B2] animate-pulse" />
             </h2>
-            <p className="text-[10px] text-slate-400 font-mono truncate max-w-[150px]">
-              {activeFilePath ? activeFilePath.split("/").pop() : "Ready to assist"}
-            </p>
+            <p className="text-[10px] text-[#71807C]">Your coding guide</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={handleNeedNudge}
-            disabled={isNudging}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50"
-            title="Get a gentle, subtle nudge without spoilers"
-          >
-            {isNudging ? (
-              <>
-                <RefreshCw className="h-3 w-3 animate-spin text-amber-400" />
-                <span className="text-[11px]">Nudging...</span>
-              </>
-            ) : (
-              <>
-                <Lightbulb className="h-3 w-3 text-amber-400" />
-                <span className="text-[11px]">Need a Nudge</span>
-              </>
-            )}
-          </button>
-
-          <button
-            onClick={handleResetChat}
-            title="Reset Chat"
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 rounded-md transition-colors"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        <button
+          className="p-1.5 text-[#71807C] hover:text-[#F4F7F6] hover:bg-[#151D1F] rounded-md transition-colors"
+          title="Mentor Options"
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
       </div>
 
-      {/* Messages Container */}
-      <div className="flex-1 p-3.5 overflow-y-auto space-y-4 select-text font-sans">
+      {/* ── Scrollable Body Area ── */}
+      <div className="flex-1 p-3.5 overflow-y-auto space-y-3.5 select-text font-sans scrollbar-thin">
+        {/* 1. Mentor Greeting Message Bubble matching Screenshot 1 */}
+        <div className="flex items-start gap-2.5">
+          {/* Avatar with yellow bulb */}
+          <div className="h-6 w-6 rounded-full bg-[#E9C46A]/20 border border-[#E9C46A]/30 flex items-center justify-center text-[#E9C46A] shrink-0 mt-0.5">
+            <Lightbulb className="h-3.5 w-3.5" />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold text-[#F4F7F6]">Hi {userName}!</div>
+            <p className="text-xs text-[#A9B5B2] leading-relaxed mt-1">
+              {isEvalFailed
+                ? "Your solution didn't pass the tests. Check the errors below, fix them, and try again."
+                : `You're working on Task ${currentTask?.order || 1}: ${
+                    currentTask?.title || "Implement GET /api/feedback"
+                  }. Need help? Click 'Need a nudge?' or ask me anything.`}
+            </p>
+            <div className="text-[10px] text-[#71807C] mt-1.5">10:24 AM</div>
+          </div>
+        </div>
+
+        {/* 2. "Need a nudge?" Button Card matching Screenshots */}
+        <button
+          onClick={handleNeedNudge}
+          disabled={isNudging}
+          className="w-full flex items-center justify-between p-3 rounded-xl bg-[#11181A] hover:bg-[#151D1F] border border-[#202A2C] hover:border-[#6BCDB4]/50 transition-all cursor-pointer group shadow-sm text-left disabled:opacity-50"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="h-6 w-6 rounded-lg bg-[#6BCDB4]/10 border border-[#6BCDB4]/30 flex items-center justify-center text-[#6BCDB4] group-hover:scale-105 transition-transform">
+              <Lightbulb className="h-3.5 w-3.5" />
+            </div>
+            <span className="text-xs font-semibold text-[#F4F7F6] group-hover:text-white transition-colors">
+              {isNudging ? "Generating nudge..." : "Need a nudge?"}
+            </span>
+          </div>
+          <ChevronRight className="h-4 w-4 text-[#71807C] group-hover:text-[#F4F7F6] group-hover:translate-x-0.5 transition-all" />
+        </button>
+
+        {/* 3. Evaluation Failure Section (Visible when tests failed) */}
+        {isEvalFailed && (
+          <div className="space-y-3">
+            {/* Expandable Evaluation Failed Card */}
+            <div className="rounded-xl bg-[#11181A] border border-[#F06A6A]/30 overflow-hidden shadow-sm">
+              <button
+                type="button"
+                onClick={() => setEvalFailedExpanded((prev) => !prev)}
+                className="w-full flex items-center justify-between p-3 text-left hover:bg-[#151D1F] transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="h-6 w-6 rounded-full bg-[#F06A6A]/15 border border-[#F06A6A]/30 flex items-center justify-center text-[#F06A6A] shrink-0">
+                    <XCircle className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-[#F06A6A]">Evaluation failed</div>
+                    <div className="text-[10px] text-[#A9B5B2]">
+                      0 / {evalResults?.criteriaStatus?.length || 4} tests passed
+                    </div>
+                  </div>
+                </div>
+
+                {evalFailedExpanded ? (
+                  <ChevronUp className="h-4 w-4 text-[#71807C]" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-[#71807C]" />
+                )}
+              </button>
+
+              {evalFailedExpanded && (
+                <div className="px-3 pb-3 pt-1 space-y-2.5 border-t border-[#202A2C]">
+                  {(evalResults?.criteriaStatus || [
+                    {
+                      title: "GET /api/feedback responds with HTTP status 200",
+                      feedback:
+                        "The server fails to start due to a ReferenceError/SyntaxError in backend/src/models/Feedback.js at line 12: 'res' is not defined at the top level.",
+                    },
+                    {
+                      title: "Response body is an array of feedback documents",
+                      feedback: "Unable to verify because the application crashes on startup.",
+                    },
+                    {
+                      title: "Each feedback item contains title, description, category, and votes",
+                      feedback: "Unable to verify because the application crashes on startup.",
+                    },
+                    {
+                      title: "Feedback items are sorted in descending order",
+                      feedback: "Unable to verify because the application crashes on startup.",
+                    },
+                  ]).map((item, idx) => (
+                    <div key={idx} className="space-y-1">
+                      <div className="flex items-start gap-1.5 text-xs font-medium text-[#F4F7F6]">
+                        <XCircle className="h-3.5 w-3.5 text-[#F06A6A] shrink-0 mt-0.5" />
+                        <span className="leading-snug">{item.title}</span>
+                      </div>
+                      {item.feedback && (
+                        <p className="text-[11px] text-[#71807C] pl-5 leading-relaxed">
+                          {item.feedback}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* "Show hints for these errors" Button (Matching Image 2) */}
+            <button
+              onClick={handleNeedNudge}
+              disabled={isNudging}
+              className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl bg-[#11181A] hover:bg-[#151D1F] border border-[#202A2C] hover:border-[#6BCDB4]/50 text-xs font-medium text-[#F4F7F6] transition-all cursor-pointer shadow-sm"
+            >
+              <Lightbulb className="h-3.5 w-3.5 text-[#6BCDB4]" />
+              <span>Show hints for these errors</span>
+            </button>
+
+            {/* Common Next Steps matching Image 2 */}
+            <div className="p-3 rounded-xl bg-[#080C0D] border border-[#202A2C] space-y-2">
+              <div className="text-xs font-semibold text-[#A9B5B2]">Common next steps:</div>
+              <div className="space-y-1.5 text-xs text-[#71807C]">
+                <div className="flex items-start gap-2">
+                  <span className="h-4 w-4 rounded-full bg-[#151D1F] text-[#A9B5B2] flex items-center justify-center text-[10px] font-mono shrink-0">
+                    1
+                  </span>
+                  <span>Read the error messages carefully</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="h-4 w-4 rounded-full bg-[#151D1F] text-[#A9B5B2] flex items-center justify-center text-[10px] font-mono shrink-0">
+                    2
+                  </span>
+                  <span>Check the highlighted line in your code</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="h-4 w-4 rounded-full bg-[#151D1F] text-[#A9B5B2] flex items-center justify-center text-[10px] font-mono shrink-0">
+                    3
+                  </span>
+                  <span>Make sure the server starts without errors</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="h-4 w-4 rounded-full bg-[#151D1F] text-[#A9B5B2] flex items-center justify-center text-[10px] font-mono shrink-0">
+                    4
+                  </span>
+                  <span>Try running the project locally</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 4. Progressive Socratic Hint Card (Matching Image 3, 4) */}
+        {isHintActive && (
+          <div className="space-y-3">
+            {/* Assistant message notification */}
+            <div className="flex items-center gap-2 text-xs text-[#A9B5B2]">
+              <div className="h-5 w-5 rounded-full bg-[#E9C46A]/20 flex items-center justify-center text-[#E9C46A]">
+                <Lightbulb className="h-3 w-3" />
+              </div>
+              <span>Here&apos;s a hint to get you unstuck.</span>
+            </div>
+
+            {/* Hint Card */}
+            <div className="p-3.5 rounded-xl bg-[#11181A] border border-[#202A2C] space-y-3 shadow-md">
+              <div className="flex items-center gap-2">
+                <Lightbulb className="h-4 w-4 text-[#E9C46A]" />
+                <h3 className="text-xs font-bold text-[#F4F7F6]">
+                  {currentHintInfo.title}
+                </h3>
+              </div>
+
+              <p className="text-xs text-[#A9B5B2] leading-relaxed">
+                {currentHintInfo.hint}
+              </p>
+
+              {/* Accordion: Why this works? */}
+              <div className="pt-2 border-t border-[#202A2C]">
+                <button
+                  type="button"
+                  onClick={() => setWhyWorksExpanded((prev) => !prev)}
+                  className="flex items-center justify-between w-full text-left text-xs font-medium text-[#A9B5B2] hover:text-[#F4F7F6] transition-colors py-1 cursor-pointer"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <ChevronRight
+                      className={`w-3.5 h-3.5 text-[#6BCDB4] transition-transform duration-200 ${
+                        whyWorksExpanded ? "rotate-90" : ""
+                      }`}
+                    />
+                    <span>Why this works?</span>
+                  </div>
+                </button>
+
+                {whyWorksExpanded && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-[#080C0D] border border-[#202A2C] text-[11px] text-[#A9B5B2] leading-relaxed select-text animate-in fade-in">
+                    {currentHintInfo.why}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Still stuck? Card matching Image 4 */}
+            <div className="p-3 rounded-xl bg-[#11181A] border border-[#202A2C] space-y-2">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="h-3.5 w-3.5 text-[#6BCDB4]" />
+                <span className="text-xs font-semibold text-[#F4F7F6]">Still stuck?</span>
+              </div>
+              <p className="text-[11px] text-[#71807C] leading-relaxed">
+                Ask a follow-up or request deeper guidance.
+              </p>
+              {hintLevel < 3 && (
+                <button
+                  onClick={handleNeedNudge}
+                  className="inline-flex items-center gap-1.5 text-xs text-[#6BCDB4] hover:text-[#82CDBD] font-medium transition-colors cursor-pointer pt-0.5"
+                >
+                  <span>Get more specific guidance</span>
+                  <ArrowRight className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 5. Natural Chat Messages Stream */}
         {messages.map((msg) => {
           const isUser = msg.role === "user";
           return (
@@ -348,205 +484,63 @@ Ready to assist with **Task ${currentTask?.order || 1}: ${
               key={msg.id}
               className={`flex flex-col ${isUser ? "items-end" : "items-start"} space-y-1`}
             >
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 px-1">
-                {isUser ? (
-                  <>
-                    <span>You</span>
-                    <User className="h-3 w-3 text-slate-400" />
-                  </>
-                ) : (
-                  <>
-                    <Bot className="h-3 w-3 text-indigo-400" />
-                    <span className="text-indigo-300 font-medium">Aria • Mentor</span>
-                  </>
-                )}
+              <div className="flex items-center gap-1.5 text-[10px] text-[#71807C] px-1">
+                <span>{isUser ? "You" : "AI Mentor"}</span>
               </div>
 
               <div
                 className={`max-w-[95%] text-xs leading-relaxed rounded-xl p-3 relative group ${
                   isUser
-                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/15 rounded-tr-none"
-                    : "bg-[#131929] border border-slate-800/90 text-slate-200 shadow-sm rounded-tl-none"
+                    ? "bg-[#6BCDB4]/20 border border-[#6BCDB4]/40 text-[#F4F7F6] rounded-tr-none"
+                    : "bg-[#11181A] border border-[#202A2C] text-[#F4F7F6] rounded-tl-none shadow-sm"
                 }`}
               >
-                {!isUser && (
-                  <button
-                    onClick={() => handleCopy(msg.id, msg.content)}
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-white bg-slate-800/80 rounded transition-all"
-                    title="Copy text"
-                  >
-                    {copiedId === msg.id ? (
-                      <Check className="h-3 w-3 text-emerald-400" />
-                    ) : (
-                      <Copy className="h-3 w-3" />
-                    )}
-                  </button>
-                )}
-
-                {/* Simple Markdown Parser / Renderer */}
-                <div className="prose prose-invert prose-xs max-w-none space-y-2">
-                  {renderMarkdownContent(msg.content)}
-                </div>
+                <div className="space-y-1 select-text">{msg.content}</div>
               </div>
             </div>
           );
         })}
 
         {isLoading && (
-          <div className="flex flex-col items-start space-y-1">
-            <div className="flex items-center gap-1.5 text-[10px] text-indigo-300 px-1">
-              <Bot className="h-3 w-3 text-indigo-400" />
-              <span>Aria is thinking...</span>
-            </div>
-            <div className="bg-[#131929] border border-slate-800/90 rounded-xl rounded-tl-none p-3 flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:-0.3s]" />
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:-0.15s]" />
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 animate-bounce" />
-            </div>
+          <div className="flex items-center gap-2 text-xs text-[#71807C] p-2">
+            <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#6BCDB4]" />
+            <span>AI Mentor is thinking...</span>
           </div>
         )}
 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Suggested Quick Prompts */}
-      <div className="px-3 py-2 border-t border-slate-800/60 bg-[#090d16]/70 flex flex-wrap gap-1.5 shrink-0">
-        {quickPrompts.map((item, idx) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={idx}
-              onClick={() => handleSend(item.prompt)}
-              disabled={isLoading}
-              className="flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-full bg-slate-900 hover:bg-indigo-950/60 text-slate-300 hover:text-indigo-300 border border-slate-800 hover:border-indigo-500/30 transition-all cursor-pointer disabled:opacity-50"
-            >
-              <Icon className="h-3 w-3 text-indigo-400" />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Bottom Input Field */}
-      <div className="p-3 border-t border-slate-800/80 bg-[#0d1322] shrink-0">
-        <div className="flex items-center gap-2 bg-[#131929] border border-slate-700/60 focus-within:border-indigo-500/70 rounded-xl px-3 py-1.5 shadow-inner transition-colors">
+      {/* ── Bottom Chat Input matching Screenshots ── */}
+      <div className="p-3 border-t border-[#202A2C] bg-[#080C0D] shrink-0 space-y-2">
+        <div className="flex items-center gap-2 bg-[#11181A] border border-[#202A2C] focus-within:border-[#6BCDB4]/60 rounded-xl px-3 py-1.5 transition-colors">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask me anything..."
+            placeholder="Ask anything..."
             rows={1}
             disabled={isLoading}
-            className="flex-1 bg-transparent text-xs text-white placeholder-slate-500 focus:outline-none resize-none py-1.5 max-h-24 overflow-y-auto"
+            className="flex-1 bg-transparent text-xs text-[#F4F7F6] placeholder-[#71807C] focus:outline-none resize-none py-1.5 max-h-24 overflow-y-auto"
           />
           <button
             onClick={() => handleSend()}
             disabled={!input.trim() || isLoading}
-            className={`p-2 rounded-lg transition-all ${
+            className={`p-1.5 rounded-lg transition-all ${
               input.trim() && !isLoading
-                ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 cursor-pointer"
-                : "bg-slate-800/50 text-slate-600 cursor-not-allowed"
+                ? "bg-[#82CDBD] hover:bg-[#6BCDB4] text-[#080C0D] cursor-pointer"
+                : "text-[#71807C] cursor-not-allowed"
             }`}
             title="Send message (Enter)"
           >
             <Send className="h-3.5 w-3.5" />
           </button>
         </div>
+
+        <p className="text-[10px] text-[#71807C] text-center">
+          I can help with hints, explanations, and debugging.
+        </p>
       </div>
     </div>
   );
-}
-
-// ── Simple Markdown Renderer for clean formatted responses ──
-function renderMarkdownContent(content: string) {
-  const parts = content.split(/(```[\s\S]*?```)/g);
-
-  return parts.map((part, index) => {
-    if (part.startsWith("```") && part.endsWith("```")) {
-      const firstLineBreak = part.indexOf("\n");
-      const lang = part.slice(3, firstLineBreak).trim();
-      const code = part.slice(firstLineBreak + 1, -3);
-
-      return (
-        <div
-          key={index}
-          className="my-2 rounded-lg bg-[#080b12] border border-slate-800 overflow-hidden font-mono text-[11px]"
-        >
-          {lang && (
-            <div className="px-2.5 py-1 bg-slate-900 border-b border-slate-800 text-[10px] text-slate-400 flex items-center justify-between">
-              <span>{lang}</span>
-            </div>
-          )}
-          <pre className="p-2.5 overflow-x-auto text-emerald-300/90 whitespace-pre">
-            <code>{code}</code>
-          </pre>
-        </div>
-      );
-    }
-
-    // Split paragraphs and headers
-    const lines = part.split("\n");
-    return (
-      <div key={index} className="space-y-1.5">
-        {lines.map((line, lIdx) => {
-          if (!line.trim()) return null;
-
-          if (line.startsWith("### ")) {
-            return (
-              <h4 key={lIdx} className="font-bold text-white text-xs pt-1">
-                {line.replace("### ", "")}
-              </h4>
-            );
-          }
-          if (line.startsWith("- ")) {
-            return (
-              <div key={lIdx} className="flex items-start gap-1.5 text-slate-300 pl-1">
-                <span className="text-indigo-400 font-bold">•</span>
-                <span>{renderInlineFormatting(line.replace("- ", ""))}</span>
-              </div>
-            );
-          }
-          if (/^\d+\.\s/.test(line)) {
-            const num = line.match(/^(\d+\.)\s/)?.[1];
-            return (
-              <div key={lIdx} className="flex items-start gap-1.5 text-slate-300 pl-1">
-                <span className="text-indigo-400 font-medium">{num}</span>
-                <span>{renderInlineFormatting(line.replace(/^\d+\.\s/, ""))}</span>
-              </div>
-            );
-          }
-
-          return (
-            <p key={lIdx} className="text-slate-300">
-              {renderInlineFormatting(line)}
-            </p>
-          );
-        })}
-      </div>
-    );
-  });
-}
-
-function renderInlineFormatting(text: string) {
-  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
-  return parts.map((p, i) => {
-    if (p.startsWith("`") && p.endsWith("`")) {
-      return (
-        <code
-          key={i}
-          className="px-1.5 py-0.5 rounded bg-slate-900 text-indigo-300 font-mono text-[11px] border border-slate-800"
-        >
-          {p.slice(1, -1)}
-        </code>
-      );
-    }
-    if (p.startsWith("**") && p.endsWith("**")) {
-      return (
-        <strong key={i} className="text-white font-semibold">
-          {p.slice(2, -2)}
-        </strong>
-      );
-    }
-    return p;
-  });
 }
