@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   Code2,
 } from "lucide-react";
+import type { MentorState } from "@/hooks/useMentor";
 
 export interface ChatMessage {
   id: string;
@@ -42,33 +43,11 @@ interface AiMentorProps {
     evaluationCriteria?: string[];
   };
   activeFilePath?: string;
-  activeFileContent?: string;
-  externalPrompt?: string | null;
-  onClearExternalPrompt?: () => void;
-  files?: Array<{ path: string; content: string }>;
-  modifiedFiles?: string[];
-  onNudgeReceived?: (nudge: {
-    targetFile: string;
-    startLine: number;
-    endLine: number;
-    hint: string;
-    concept?: string;
-    isError?: boolean;
-  }) => void;
-  evalResults?: {
-    passed: boolean;
-    criteriaStatus?: Array<{ title: string; passed: boolean; feedback?: string }>;
-    overallFeedback?: string;
-  } | null;
-  activeHint?: {
-    targetFile: string;
-    startLine: number;
-    endLine: number;
-    hint: string;
-    concept?: string;
-    isError?: boolean;
-  } | null;
+  state: MentorState;
+  onNudge: () => void;
+  onSend: (message: string) => void;
   onClearHint?: () => void;
+  onClearMessages: () => void;
   userName?: string;
 }
 
@@ -219,31 +198,29 @@ function renderInlineFormat(text: string): React.ReactNode {
 export default function AiMentor({
   currentTask,
   activeFilePath,
-  activeFileContent,
-  externalPrompt,
-  onClearExternalPrompt,
-  files,
-  modifiedFiles,
-  onNudgeReceived,
-  evalResults,
-  activeHint,
+  state,
+  onNudge,
+  onSend,
   onClearHint,
+  onClearMessages,
   userName = "Tanishq",
 }: AiMentorProps) {
   // Navigation tabs: "chat" or "hints"
   const [activeTab, setActiveTab] = useState<"chat" | "hints">("chat");
 
   // Chat messages
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messages = state.messages.map((message) => ({ ...message, timestamp: new Date(message.timestamp) }));
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [isNudging, setIsNudging] = useState(false);
+  const isLoading = state.isThinking;
+  const isNudging = state.isThinking;
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
   // Hints state
   const [evalFailedExpanded, setEvalFailedExpanded] = useState(true);
   const [whyWorksExpanded, setWhyWorksExpanded] = useState(false);
-  const [hintLevel, setHintLevel] = useState(1);
+  const hintLevel = state.hints.at(-1)?.level || 1;
+  const activeHint = state.activeAnnotation;
+  const evalResults = state.evaluation;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -255,132 +232,17 @@ export default function AiMentor({
     scrollToBottom();
   }, [messages, isLoading, isNudging, activeHint]);
 
-  // Handle external prompt triggers (e.g. from inline aria or editor hints)
-  useEffect(() => {
-    if (externalPrompt) {
-      setActiveTab("chat");
-      handleSend(externalPrompt);
-      onClearExternalPrompt?.();
-    }
-  }, [externalPrompt]);
-
-  // Progressive Socratic hints progression dictionary
-  const hintProgression: Record<
-    number,
-    { title: string; hint: string; concept: string; why: string }
-  > = {
-    1: {
-      title: "Hint 1 — Direction & Strategy",
-      hint: "You need to fetch all feedback entries using the Feedback model. Remember to sort them (newest or highest votes first) and return them as JSON.",
-      concept: "Query the database",
-      why: "Mongoose models provide Feedback.find() to query collections. Chaining .sort({ createdAt: -1 }) tells MongoDB to sort documents in reverse chronological order before returning them.",
-    },
-    2: {
-      title: "Hint 2 — Response Handling",
-      hint: "Look at what happens immediately after the database query resolves. Ensure the retrieved documents are returned with HTTP status 200 using Express's response methods.",
-      concept: "Express route response",
-      why: "Inside Express route handlers, res.status(200).json(data) formats the data into JSON and sends it back with the standard OK status.",
-    },
-    3: {
-      title: "Hint 3 — Model Methods & Helpers",
-      hint: "Which Mongoose model method retrieves all matching records from a collection? Check backend/src/models/Feedback.js to see available helpers.",
-      concept: "Mongoose Feedback.find()",
-      why: "Calling await Feedback.find() returns an array of all documents stored in the database.",
-    },
-  };
-
   const handleNeedNudge = async () => {
-    if (isNudging || isLoading || !currentTask) return;
-    setIsNudging(true);
-
-    try {
-      const nextLevel = activeHint && !activeHint.isError ? Math.min(3, hintLevel + 1) : 1;
-      setHintLevel(nextLevel);
-
-      const targetFile = "backend/src/feedback.js";
-      const progressiveData = hintProgression[nextLevel] || hintProgression[1];
-
-      // Trigger line decoration in CodeEditor
-      if (onNudgeReceived) {
-        onNudgeReceived({
-          targetFile,
-          startLine: 16,
-          endLine: 16,
-          hint: progressiveData.hint,
-          concept: progressiveData.concept,
-          isError: false,
-        });
-      }
-
-      // Switch to hints tab so the user immediately sees the progressive breakdown
-      setActiveTab("hints");
-    } catch (err: any) {
-      console.error("Nudge error:", err);
-    } finally {
-      setIsNudging(false);
-    }
+    if (isNudging || !currentTask) return;
+    onNudge(); setActiveTab("hints");
   };
 
   const handleSend = async (messageText?: string) => {
     const textToSend = messageText || input;
     if (!textToSend.trim() || isLoading) return;
 
-    const userMessage: ChatMessage = {
-      id: "user-" + Date.now(),
-      role: "user",
-      content: textToSend.trim(),
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
     if (!messageText) setInput("");
-    setIsLoading(true);
-
-    try {
-      const response = await fetch("/api/ai/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: textToSend,
-          history: messages.map((m) => ({ role: m.role, content: m.content })),
-          task: currentTask,
-          activeFile: {
-            path: activeFilePath || "backend/src/feedback.js",
-            content: activeFileContent || "",
-          },
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || data.error || !data.reply) {
-        throw new Error(data.error || "Failed to get AI response");
-      }
-
-      const assistantMessage: ChatMessage = {
-        id: "ai-" + Date.now(),
-        role: "assistant",
-        content: data.reply,
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error: any) {
-      console.error("AI Mentor chat error:", error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: "err-" + Date.now(),
-          role: "assistant",
-          content:
-            error?.message ||
-            "Unable to connect to AI Mentor. Please check your network and API configuration.",
-          timestamp: new Date(),
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
+    onSend(textToSend.trim());
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -397,18 +259,17 @@ export default function AiMentor({
   };
 
   const handleClearChat = () => {
-    setMessages([]);
+    onClearMessages();
   };
 
   const isEvalFailed = evalResults && !evalResults.passed;
   const isHintActive = Boolean(activeHint && !activeHint.isError);
-  const currentHintInfo = hintProgression[hintLevel] || hintProgression[1];
-  const activeFileName = activeFilePath ? activeFilePath.split("/").pop() : "feedback.js";
+  const activeFileName = activeFilePath ? activeFilePath.split("/").pop() : "No file selected";
 
   // Suggested quick prompts when chat is fresh or idle
   const suggestionPrompts = [
     { label: "💡 Where do I start?", prompt: "Where should I start for this task? Give me a conceptual overview." },
-    { label: "🔍 How to query MongoDB?", prompt: "What is the recommended Mongoose method to query all feedback items?" },
+    { label: "🔍 Explain the relevant concept", prompt: "Which concept should I understand before implementing this task?" },
     { label: "⚠️ Debug current error", prompt: "Can you explain the current error without giving me the direct code solution?" },
     { label: "🎯 Review my approach", prompt: "How should I structure the route response to fulfill all evaluation criteria?" },
   ];
@@ -552,7 +413,7 @@ export default function AiMentor({
                     {isEvalFailed
                       ? "Your current solution encountered errors during evaluation. Ask me to help diagnose the issue or switch to the Hints tab for guided steps."
                       : `You're working on Task ${currentTask?.order || 1}: ${
-                          currentTask?.title || "Implement GET /api/feedback"
+                          currentTask?.title || "your current task"
                         }. Ask questions, debug concepts, or request directional nudges anytime.`}
                   </p>
 
@@ -680,27 +541,7 @@ export default function AiMentor({
 
                 {evalFailedExpanded && (
                   <div className="px-3.5 pb-3.5 pt-1 space-y-3 border-t border-[#202A2C] bg-[#0A0F11]/50">
-                    {(
-                      evalResults?.criteriaStatus || [
-                        {
-                          title: "GET /api/feedback responds with HTTP status 200",
-                          feedback:
-                            "The server fails to start due to a ReferenceError/SyntaxError in backend/src/models/Feedback.js at line 12: 'res' is not defined at the top level.",
-                        },
-                        {
-                          title: "Response body is an array of feedback documents",
-                          feedback: "Unable to verify because the application crashes on startup.",
-                        },
-                        {
-                          title: "Each feedback item contains title, description, category, and votes",
-                          feedback: "Unable to verify because the application crashes on startup.",
-                        },
-                        {
-                          title: "Feedback items are sorted in descending order",
-                          feedback: "Unable to verify because the application crashes on startup.",
-                        },
-                      ]
-                    ).map((item, idx) => (
+                    {(evalResults?.criteriaStatus || []).map((item, idx) => (
                       <div
                         key={idx}
                         className="p-2.5 rounded-xl bg-[#11181A] border border-[#202A2C] space-y-1.5"
@@ -786,7 +627,7 @@ export default function AiMentor({
                         <Lightbulb className="h-3.5 w-3.5" />
                       </div>
                       <h3 className="text-xs font-bold text-[#F4F7F6]">
-                        {currentHintInfo.title}
+                        Mentor guidance — level {hintLevel}
                       </h3>
                     </div>
                     {onClearHint && (
@@ -800,7 +641,7 @@ export default function AiMentor({
                   </div>
 
                   <p className="text-xs text-[#A9B5B2] leading-relaxed">
-                    {activeHint.hint || currentHintInfo.hint}
+                    {activeHint?.hint}
                   </p>
 
                   {/* Accordion: "Why this works?" */}
@@ -822,7 +663,7 @@ export default function AiMentor({
 
                     {whyWorksExpanded && (
                       <div className="mt-2 p-3 rounded-xl bg-[#080C0D] border border-[#202A2C] text-[11px] text-[#A9B5B2] leading-relaxed select-text animate-in fade-in space-y-2">
-                        <p>{currentHintInfo.why}</p>
+                        <p>This guidance is based on the current task, relevant files, and latest evaluation.</p>
                       </div>
                     )}
                   </div>
@@ -894,7 +735,7 @@ export default function AiMentor({
                   <span className="h-4 w-4 rounded-full bg-[#151D1F] text-[#67D6B2] flex items-center justify-center text-[10px] font-mono shrink-0 mt-0.5">
                     2
                   </span>
-                  <span>Verify route exports match Express router expectations</span>
+                  <span>Compare the implementation with the failed criteria</span>
                 </div>
                 <div className="flex items-start gap-2.5">
                   <span className="h-4 w-4 rounded-full bg-[#151D1F] text-[#67D6B2] flex items-center justify-center text-[10px] font-mono shrink-0 mt-0.5">

@@ -751,7 +751,7 @@ export default function CodeEditor({
 
                   {whyWorksOpen && (
                     <div className="mt-2 p-2.5 rounded-lg bg-[#11181A] border border-[#202A2C] text-[11px] text-[#A9B5B2] leading-relaxed select-text animate-in fade-in">
-                      Mongoose models provide <code className="text-[#82CDBD] font-mono">Feedback.find()</code> to query all documents. Chaining <code className="text-[#82CDBD] font-mono">.sort(&#123; createdAt: -1 &#125;)</code> orders records from newest to oldest before returning them in <code className="text-[#82CDBD] font-mono">res.status(200).json(feedback)</code>.
+                      Review the highlighted area against the task requirements, then use the mentor panel if you want a more detailed explanation.
                     </div>
                   )}
                 </div>

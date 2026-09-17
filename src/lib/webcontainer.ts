@@ -207,7 +207,7 @@ export async function ensureStaticServerFile(): Promise<string> {
 const fs = require('fs');
 const path = require('path');
 
-const PORT = 5000;
+const PORT = process.env.PORT || 0;
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.htm': 'text/html; charset=utf-8',

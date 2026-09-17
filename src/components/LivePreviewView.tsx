@@ -27,7 +27,7 @@ interface LivePreviewViewProps {
 
 export default function LivePreviewView({
   previewUrl,
-  serverPort = 5000,
+  serverPort,
   isServerRunning,
   startingServer,
   onStartServer,
@@ -51,8 +51,8 @@ export default function LivePreviewView({
   const handleOpenExternalTab = (e?: React.MouseEvent) => {
     if (e) e.preventDefault();
     if (!fullUrl) return;
-    // Window.open without noopener to maintain window.opener link for WebContainer handshake
-    window.open(fullUrl, "_blank");
+    // Open our /preview page in a new tab with the WebContainer URL
+    window.open(`/preview?url=${encodeURIComponent(fullUrl)}`, "_blank");
   };
 
   const handleReload = () => {
@@ -70,7 +70,7 @@ export default function LivePreviewView({
               <>
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-[11px] font-mono font-semibold text-emerald-300">
-                  :{serverPort || 5000} ONLINE
+                  :{serverPort} ONLINE
                 </span>
               </>
             ) : startingServer ? (
@@ -105,10 +105,7 @@ export default function LivePreviewView({
         <div className="flex items-center gap-1.5 flex-1 max-w-xl bg-[#131826] border border-slate-800/90 rounded-lg px-2.5 py-1 text-xs font-mono text-slate-300 min-w-0 shadow-inner">
           <Globe className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
           <span className="truncate text-slate-400 select-all flex-1">
-            {previewUrl ||
-              (isServerRunning
-                ? "Connecting WebContainer tunnel..."
-                : "http://localhost:5000")}
+            {previewUrl || (startingServer ? "Waiting for WebContainer preview URL…" : "No preview URL")}
             <span className="text-indigo-400 font-bold">
               {previewPath === "/" ? "" : previewPath}
             </span>
@@ -141,11 +138,10 @@ export default function LivePreviewView({
               <button
                 key={rt.path}
                 onClick={() => onChangePreviewPath(rt.path)}
-                className={`px-2 py-0.5 rounded text-[11px] font-mono transition-all cursor-pointer ${
-                  previewPath === rt.path
+                className={`px-2 py-0.5 rounded text-[11px] font-mono transition-all cursor-pointer ${previewPath === rt.path
                     ? "bg-indigo-600 text-white font-semibold shadow-sm shadow-indigo-500/30"
                     : "bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800"
-                }`}
+                  }`}
               >
                 {rt.label}
               </button>
@@ -157,33 +153,30 @@ export default function LivePreviewView({
             <div className="hidden lg:flex items-center bg-slate-900/90 border border-slate-800 rounded-md p-0.5 gap-0.5">
               <button
                 onClick={() => setViewportMode("desktop")}
-                className={`p-1 rounded transition-colors ${
-                  viewportMode === "desktop"
+                className={`p-1 rounded transition-colors ${viewportMode === "desktop"
                     ? "bg-indigo-600 text-white"
                     : "text-slate-400 hover:text-slate-200"
-                }`}
+                  }`}
                 title="Desktop View (100%)"
               >
                 <Monitor className="h-3 w-3" />
               </button>
               <button
                 onClick={() => setViewportMode("tablet")}
-                className={`p-1 rounded transition-colors ${
-                  viewportMode === "tablet"
+                className={`p-1 rounded transition-colors ${viewportMode === "tablet"
                     ? "bg-indigo-600 text-white"
                     : "text-slate-400 hover:text-slate-200"
-                }`}
+                  }`}
                 title="Tablet View (768px)"
               >
                 <Tablet className="h-3 w-3" />
               </button>
               <button
                 onClick={() => setViewportMode("mobile")}
-                className={`p-1 rounded transition-colors ${
-                  viewportMode === "mobile"
+                className={`p-1 rounded transition-colors ${viewportMode === "mobile"
                     ? "bg-indigo-600 text-white"
                     : "text-slate-400 hover:text-slate-200"
-                }`}
+                  }`}
                 title="Mobile View (375px)"
               >
                 <Smartphone className="h-3 w-3" />
@@ -210,13 +203,12 @@ export default function LivePreviewView({
         {isServerRunning ? (
           previewUrl ? (
             <div
-              className={`h-full transition-all duration-300 bg-[#080c14] ${
-                viewportMode === "mobile" && !isCompact
+              className={`h-full transition-all duration-300 bg-[#080c14] ${viewportMode === "mobile" && !isCompact
                   ? "w-[375px] max-w-full my-3 border border-slate-700/60 rounded-xl shadow-2xl overflow-hidden"
                   : viewportMode === "tablet" && !isCompact
-                  ? "w-[768px] max-w-full my-3 border border-slate-700/60 rounded-xl shadow-2xl overflow-hidden"
-                  : "w-full"
-              }`}
+                    ? "w-[768px] max-w-full my-3 border border-slate-700/60 rounded-xl shadow-2xl overflow-hidden"
+                    : "w-full"
+                }`}
             >
               <iframe
                 key={`${reloadKey}-${previewPath}`}
@@ -234,7 +226,7 @@ export default function LivePreviewView({
                   Connecting Live Preview...
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Waiting for WebContainer port {serverPort || 5000} tunnel to establish...
+                  Waiting for WebContainer to provide the preview URL...
                 </p>
               </div>
             </div>

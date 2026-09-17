@@ -17,6 +17,7 @@ import {
   Target,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
 } from "lucide-react";
 
 export interface TaskItem {
@@ -84,11 +85,7 @@ export default function TaskHeader({
 }: TaskHeaderProps) {
   const [showFullDetails, setShowFullDetails] = useState(false);
 
-  // Extract or fall back target files
-  const targetFiles =
-    currentTask.targetFiles && currentTask.targetFiles.length > 0
-      ? currentTask.targetFiles
-      : ["src/models/User.js", "src/controllers/authController.js", "src/middleware/auth.js"];
+  const targetFiles = currentTask.targetFiles || [];
 
   const getFileBadgeColor = (filename: string) => {
     const ext = filename.split(".").pop()?.toLowerCase();
@@ -147,19 +144,52 @@ export default function TaskHeader({
           </span>
         </div>
 
-        {/* Right: Open Preview ↗, Evaluate */}
+        {/* Right: Run Code / Tests, Open Preview ↗, Evaluate */}
         <div className="flex items-center gap-2.5 shrink-0">
+          {onRunCode && (
+            <button
+              onClick={onRunCode}
+              disabled={runningCode}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#11181A] hover:bg-[#162124] text-[#67D6B2] border border-[#202A2C] hover:border-[#67D6B2]/40 text-xs font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+              title={runButtonLabel || "Run Code"}
+            >
+              {runningCode ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#67D6B2]" />
+                  <span>Running...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="h-3.5 w-3.5 fill-[#67D6B2] text-[#67D6B2]" />
+                  <span>{runButtonLabel || "Run Code"}</span>
+                </>
+              )}
+            </button>
+          )}
+
           {onStartServer && (
             <button
-              onClick={onStartServer}
+              onClick={() => {
+                if (previewUrl) {
+                  // Server is already running — open preview page in new tab with URL immediately
+                  window.open(`/preview?url=${encodeURIComponent(previewUrl)}`, "_blank");
+                } else {
+                  // Server not started — open tab and initiate start
+                  window.open("/preview", "_blank");
+                  onStartServer();
+                }
+              }}
               disabled={startingServer}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#11181A] hover:bg-[#151D1F] text-[#F4F7F6] border border-[#202A2C] text-xs font-medium shadow-sm transition-all cursor-pointer"
-              title="Open Live Preview in new tab"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#11181A] hover:bg-[#151D1F] text-[#F4F7F6] border border-[#202A2C] text-xs font-medium shadow-sm transition-all cursor-pointer disabled:opacity-60"
+              title="Open Live Preview in a new browser tab"
             >
-              <span>Open Preview</span>
-              <svg className="h-3 w-3 text-[#A9B5B2]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
+              {previewUrl ? (
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              ) : startingServer ? (
+                <RefreshCw className="h-3 w-3 animate-spin text-amber-400" />
+              ) : null}
+              <span>{previewUrl ? "Open Preview" : startingServer ? "Starting..." : "Open Preview"}</span>
+              <ExternalLink className="h-3 w-3 text-[#A9B5B2]" />
             </button>
           )}
 
@@ -190,11 +220,10 @@ export default function TaskHeader({
           {/* Left: Big Title and Description */}
           <div className="space-y-2 max-w-2xl flex-1">
             <h1 className="text-xl font-bold text-[#F4F7F6] tracking-tight">
-              {currentTask.title || "Implement GET /api/feedback"}
+              {currentTask.title}
             </h1>
             <p className="text-xs text-[#A9B5B2] leading-relaxed">
-              {currentTask.description ||
-                "Connect the feedback list to the database by implementing the GET /api/feedback route handler. The endpoint must retrieve all saved feedback entries from the database and return them as a JSON array."}
+              {currentTask.description}
             </p>
           </div>
 

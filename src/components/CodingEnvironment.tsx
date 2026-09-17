@@ -28,7 +28,7 @@ import {
   XCircle,
 } from "lucide-react";
 import FileTree from "@/components/FileTree";
-import CodeEditor, { type OpenTab, type EditorHint } from "@/components/CodeEditor";
+import CodeEditor, { type OpenTab } from "@/components/CodeEditor";
 import TaskHeader, { type TaskItem } from "@/components/TaskHeader";
 import AiMentor from "@/components/AiMentor";
 import LivePreviewView from "@/components/LivePreviewView";
@@ -47,7 +47,8 @@ import {
   getWebContainer,
   detectServerCommand,
 } from "@/lib/webcontainer";
-import { buildAIContext } from "@/lib/aiContext";
+import { evaluateTask } from "@/lib/ai/evaluation/evaluateTask";
+import { useMentor } from "@/hooks/useMentor";
 
 export interface ProjectFile {
   path: string;
@@ -92,44 +93,9 @@ export default function CodingEnvironment({
     passed: boolean;
     criteriaStatus: { title: string; passed: boolean; feedback?: string }[];
     overallFeedback?: string;
-  } | null>({
-    passed: false,
-    criteriaStatus: [
-      {
-        title: "GET /api/feedback responds with HTTP status 200",
-        passed: false,
-        feedback:
-          "The server fails to start due to a ReferenceError/SyntaxError in backend/src/models/Feedback.js at line 12: 'res' is not defined at the top level.",
-      },
-      {
-        title: "Response body is an array of feedback documents",
-        passed: false,
-        feedback: "Unable to verify because the application crashes on startup.",
-      },
-      {
-        title: "Each feedback item contains title, description, category, and votes",
-        passed: false,
-        feedback: "Unable to verify because the application crashes on startup.",
-      },
-      {
-        title: "Feedback items are sorted in descending order",
-        passed: false,
-        feedback: "Unable to verify because the application crashes on startup.",
-      },
-    ],
-    overallFeedback: "0 / 4 tests passed. Fix the issues below and try again.",
-  });
+  } | null>(null);
   const [showTaskDetailsModal, setShowTaskDetailsModal] = useState(false);
 
-  // Active Nudge / Hint State
-  const [activeHint, setActiveHint] = useState<EditorHint | null>({
-    targetFile: "backend/src/feedback.js",
-    startLine: 16,
-    endLine: 16,
-    hint: "This line is causing an error. See details below.",
-    concept: "Query the database",
-    isError: true,
-  });
 
   // Cloud Save State
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -148,13 +114,7 @@ export default function CodingEnvironment({
   const [activeBottomTab, setActiveBottomTab] = useState<"terminal" | "evaluation" | "problems" | "preview">("terminal");
   const [runningCode, setRunningCode] = useState(false);
   const [terminalInput, setTerminalInput] = useState("");
-  const [terminalLogs, setTerminalLogs] = useState<string[]>([
-    "WebContainer ready",
-    "$ npm run dev",
-    "> feedback-board@1.0.0 dev",
-    "> node server.js",
-    "✔ Server running at http://localhost:3000",
-  ]);
+  const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
 
   // Server & Live Preview state
   const [isServerRunning, setIsServerRunning] = useState(false);
@@ -165,7 +125,107 @@ export default function CodingEnvironment({
   const [panelExpanded, setPanelExpanded] = useState(false);
   const [iframeReloadKey, setIframeReloadKey] = useState(0);
   const serverProcessRef = React.useRef<any>(null);
+  const serverReadyUnsubscribeRef = useRef<(() => void) | null>(null);
   const terminalPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const previewChannelRef = useRef<BroadcastChannel | null>(null);
+
+  // Synchronized refs to avoid stale closures
+  const previewUrlRef = useRef<string | null>(null);
+  previewUrlRef.current = previewUrl;
+  const isServerRunningRef = useRef<boolean>(false);
+  isServerRunningRef.current = isServerRunning;
+  const startingServerRef = useRef<boolean>(false);
+  startingServerRef.current = startingServer;
+  const serverStatusMessageRef = useRef<string>("idle");
+
+  const broadcastPreview = useCallback((type: string, data: Record<string, any> = {}) => {
+    try {
+      previewChannelRef.current?.postMessage({ type, ...data });
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  const updateServerStatus = useCallback((status: string, message: string) => {
+    serverStatusMessageRef.current = message;
+    try {
+      localStorage.setItem("nudge-preview-status", status);
+      localStorage.setItem("nudge-preview-status-message", message);
+      broadcastPreview("server-status", { status, message });
+    } catch {
+      // Ignore
+    }
+  }, [broadcastPreview]);
+
+  const resetServerLifecycle = useCallback((message?: string) => {
+    serverReadyUnsubscribeRef.current?.();
+    serverReadyUnsubscribeRef.current = null;
+    if (serverProcessRef.current) {
+      try { serverProcessRef.current.kill(); } catch { /* process may already be stopped */ }
+      serverProcessRef.current = null;
+    }
+    setStartingServer(false);
+    startingServerRef.current = false;
+    setIsServerRunning(false);
+    setPreviewUrl(null);
+    setServerPort(null);
+    if (message) setTerminalLogs((logs) => [...logs, message]);
+  }, []);
+
+  // References for cross-tab message handlers
+  const handleStartServerRef = useRef<any>(null);
+  const handleRestartServerRef = useRef<any>(null);
+
+  // ── BroadcastChannel setup (runs once on mount) ────────────────
+  useEffect(() => {
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel("nudge-preview");
+      previewChannelRef.current = channel;
+
+      channel.onmessage = (event) => {
+        const data = event.data;
+        if (!data || typeof data !== "object") return;
+
+        if (data.type === "request-preview-url") {
+          if (previewUrlRef.current) {
+            channel?.postMessage({ type: "preview-url", url: previewUrlRef.current });
+          } else if (startingServerRef.current) {
+            channel?.postMessage({
+              type: "server-status",
+              status: "starting",
+              message: serverStatusMessageRef.current || "Starting dev server...",
+            });
+          } else {
+            handleStartServerRef.current?.({ openTab: false });
+          }
+        } else if (data.type === "restart-server") {
+          handleRestartServerRef.current?.();
+        } else if (data.type === "start-server") {
+          handleStartServerRef.current?.({ openTab: false });
+        }
+      };
+    } catch {
+      // BroadcastChannel not supported
+    }
+
+    return () => {
+      channel?.close();
+      previewChannelRef.current = null;
+    };
+  }, []);
+
+  // Broadcast preview URL whenever it changes
+  useEffect(() => {
+    if (previewUrl) {
+      localStorage.setItem("nudge-preview-url", previewUrl);
+      localStorage.setItem("nudge-preview-status", "ready");
+      broadcastPreview("preview-url", { url: previewUrl });
+    } else {
+      localStorage.removeItem("nudge-preview-url");
+      localStorage.setItem("nudge-preview-status", startingServer ? "starting" : "idle");
+    }
+  }, [previewUrl, startingServer, broadcastPreview]);
 
   const toggleTerminalExpand = useCallback(() => {
     if (panelExpanded) {
@@ -177,8 +237,6 @@ export default function CodingEnvironment({
     }
   }, [panelExpanded]);
 
-  // AI Mentor state
-  const [externalAiPrompt, setExternalAiPrompt] = useState<string | null>(null);
 
   // ── Load user workspace & project data ──────────────────────────────
   useEffect(() => {
@@ -255,10 +313,6 @@ export default function CodingEnvironment({
         // Restore saved active file or choose best default
         const preferredFile =
           (preferredPath && files.find((f) => f.path === preferredPath)) ||
-          files.find((f) => f.path.endsWith("feedback.js")) ||
-          files.find((f) => f.path.includes("feedback.js")) ||
-          files.find((f) => f.path.includes("User.js")) ||
-          files.find((f) => f.path.includes("server.js")) ||
           files.find((f) => f.visible !== false && f.editable !== false) ||
           files[0];
 
@@ -267,45 +321,15 @@ export default function CodingEnvironment({
           setActiveFileContent(preferredFile.content);
 
           const initialTabsList: OpenTab[] = [];
-          // Match screenshot tabs order: server.js, feedback.js, routes.js
-          ["server.js", "feedback.js", "routes.js"].forEach((name) => {
-            const match = files.find((f) => f.path.endsWith("/" + name) || f.path === name);
-            if (match && !initialTabsList.some((t) => t.path === match.path)) {
-              initialTabsList.push({ path: match.path, dirty: false });
-            }
-          });
-
-          // Add any other core target files
-          files.forEach((f) => {
-            if (
-              !initialTabsList.some((t) => t.path === f.path) &&
-              (f.path.includes("User.js") || f.path.includes("auth.js"))
-            ) {
-              initialTabsList.push({ path: f.path, dirty: false });
-            }
-          });
-
-          if (initialTabsList.length === 0) {
-            initialTabsList.push({ path: preferredFile.path, dirty: false });
-          }
+          initialTabsList.push({ path: preferredFile.path, dirty: false });
 
           setOpenTabs(initialTabsList);
         }
 
         try {
+          resetServerLifecycle();
           await mountProject(files);
           setTreeRefreshKey((k) => k + 1);
-
-          // Listen for WebContainer server-ready events
-          try {
-            onServerReady((port, url) => {
-              setPreviewUrl(url);
-              setServerPort(port);
-              setIsServerRunning(true);
-            });
-          } catch (srErr) {
-            console.warn("Server-ready listener warning:", srErr);
-          }
         } catch (mErr) {
           console.warn("WebContainer mount warning:", mErr);
         }
@@ -316,8 +340,9 @@ export default function CodingEnvironment({
 
     return () => {
       isSubscribed = false;
+      resetServerLifecycle();
     };
-  }, [projectIdOrSlug, initialProject]);
+  }, [projectIdOrSlug, initialProject, resetServerLifecycle]);
 
   // ── Tab & File selection ──────────────────────────────────────────
   const handleSelectFile = useCallback((path: string) => {
@@ -593,18 +618,11 @@ export default function CodingEnvironment({
   const currentTask: TaskItem =
     project?.tasks?.[currentTaskIndex] || {
       order: 1,
-      title: "Define User Model & Password Hashing",
-      description:
-        "Implement secure password hashing in the User model using salt rounds. Ensure passwords are never stored in plain text and provide a method to compare plain passwords with hashes.",
-      goal: "Hash passwords securely using cryptographic salt before persisting user records.",
-      targetFiles: ["src/models/User.js", "src/controllers/authController.js", "src/middleware/auth.js"],
-      evaluationCriteria: [
-        "User schema defines name, email, and passwordHash fields",
-        "hashPassword function encrypts plain passwords with salt",
-        "comparePassword function accurately validates matched and mismatched passwords",
-        "Plain text passwords are never stored or returned in responses",
-      ],
+      title: "No task available",
+      description: "This project does not currently contain a task.",
+      targetFiles: [],
     };
+  const mentor = useMentor({ task: currentTask, projectId: project?._id || projectIdOrSlug, files: project?.files || [], activeFilePath, evaluation: evalResults });
 
   // Active file type detection for dynamic Run button
   const activeFileExt = activeFilePath ? activeFilePath.split(".").pop()?.toLowerCase() || "" : "";
@@ -612,35 +630,45 @@ export default function CodingEnvironment({
   const isJsActive = activeFileExt === "js" || activeFileExt === "mjs" || activeFileExt === "cjs";
   const isTsActive = activeFileExt === "ts" || activeFileExt === "tsx";
 
-  let runButtonLabel = "Run Code";
-  let runButtonType: "html" | "node" | "test" | "general" = "general";
+  let runButtonLabel = "Run Tests";
+  let runButtonType: "html" | "node" | "test" | "general" = "test";
 
   if (isHtmlActive) {
     const fileName = activeFilePath.includes("/") ? activeFilePath.split("/").pop()! : activeFilePath;
     runButtonLabel = `Preview ${fileName}`;
     runButtonType = "html";
-  } else if (isJsActive || isTsActive) {
-    const fileName = activeFilePath.includes("/") ? activeFilePath.split("/").pop()! : activeFilePath;
-    if (fileName.includes("test") || fileName.includes("spec")) {
-      runButtonLabel = `node ${fileName}`;
-      runButtonType = "test";
-    } else {
-      runButtonLabel = `node ${fileName}`;
-      runButtonType = "node";
-    }
-  } else if (activeFilePath) {
+  } else if (activeFilePath.includes("test") || activeFilePath.includes("spec")) {
     const fileName = activeFilePath.includes("/") ? activeFilePath.split("/").pop()! : activeFilePath;
     runButtonLabel = `Run ${fileName}`;
-    runButtonType = "general";
+    runButtonType = "test";
+  } else if (activeFilePath.includes("server") || activeFilePath.includes("app.js")) {
+    runButtonLabel = isServerRunning ? "Server Online" : "Start Server";
+    runButtonType = "node";
+  } else {
+    runButtonLabel = "Run Tests";
+    runButtonType = "test";
   }
 
-  const handleStartServer = useCallback(async () => {
+  const handleStartServer = useCallback(async (options?: { openTab?: boolean }) => {
     setActiveBottomTab("preview");
-    if (isServerRunning && previewUrl) {
+    if (isServerRunningRef.current && previewUrlRef.current) {
+      if (options?.openTab) {
+        window.open(`/preview?url=${encodeURIComponent(previewUrlRef.current)}`, "_blank");
+      }
       return;
+    }
+    if (startingServerRef.current || serverProcessRef.current) return;
+
+    if (options?.openTab) {
+      window.open("/preview", "_blank");
     }
 
     setStartingServer(true);
+    startingServerRef.current = true;
+    setIsServerRunning(false);
+    setPreviewUrl(null);
+    setServerPort(null);
+    updateServerStatus("starting", "Booting WebContainer Dev Server...");
 
     const appendLog = (lines: string | string[]) => {
       const arr = Array.isArray(lines) ? lines : lines.split("\n");
@@ -657,13 +685,19 @@ export default function CodingEnvironment({
         }
       }
 
-      // Attach WebContainer server-ready listener
+      // A server process is READY only when WebContainer reports its public URL.
       try {
-        await onServerReady((port, url) => {
+        serverReadyUnsubscribeRef.current?.();
+        serverReadyUnsubscribeRef.current = await onServerReady((port, url) => {
           setPreviewUrl(url);
           setServerPort(port);
           setIsServerRunning(true);
+          setStartingServer(false);
+          startingServerRef.current = false;
           setActiveBottomTab("preview");
+          localStorage.setItem("nudge-preview-url", url);
+          localStorage.setItem("nudge-preview-status", "ready");
+          broadcastPreview("preview-url", { url });
           appendLog([
             `✔ [WebContainer] Dev Server Ready! Listening on port ${port}`,
             `🌐 Live Preview URL: ${url}`,
@@ -679,62 +713,97 @@ export default function CodingEnvironment({
         ...prev,
         "",
         `➜ ${detected.description}`,
-        `⚡ [WebContainer] Starting ${detected.description} on port 5000...`,
+        `⚡ [WebContainer] Starting ${detected.description}...`,
       ]);
 
-      // If npm install is needed for npm scripts or server.js
+      // Check if npm install is needed (skip if node_modules already exists!)
       if (
         detected.type === "npm-script" ||
         (detected.type === "node-server" && detected.args[0]?.includes("server"))
       ) {
+        let hasNodeModules = false;
         try {
-          appendLog("📦 Checking dependencies (npm install)...");
-          const installProcess = await spawnProcess("npm", ["install"], {
-            output: (chunk) => appendLog(chunk),
-          });
-          const installCode = await installProcess.exit;
-          if (installCode === 0) {
-            appendLog("✔ Dependencies ready.");
-          }
+          const container = await getWebContainer();
+          const entries = await container.fs.readdir(".", { withFileTypes: true });
+          hasNodeModules = entries.some((e: any) => (typeof e === "string" ? e : e.name) === "node_modules");
         } catch {
-          // Continue if skipped
+          hasNodeModules = false;
+        }
+
+        if (!hasNodeModules) {
+          try {
+            appendLog("📦 Installing project dependencies (npm install)...");
+            updateServerStatus("installing", "Installing dependencies (npm install)...");
+            const installProcess = await spawnProcess("npm", ["install"], {
+              output: (chunk) => appendLog(chunk),
+            });
+            const installCode = await installProcess.exit;
+            if (installCode === 0) {
+              appendLog("✔ Dependencies ready.");
+            } else {
+              throw new Error(`Dependency installation exited with code ${installCode}`);
+            }
+          } catch (iErr: any) {
+            appendLog(`❌ ${iErr?.message || "Dependency installation failed."}`);
+            resetServerLifecycle();
+            updateServerStatus("error", iErr?.message || "Dependency installation failed");
+            return;
+          }
         }
       }
 
+      updateServerStatus("starting", `Starting ${detected.description}...`);
       const proc = await spawnProcess(detected.command, detected.args, {
         output: (chunk) => appendLog(chunk),
       });
 
       serverProcessRef.current = proc;
-      setIsServerRunning(true);
 
       proc.exit.then((code) => {
+        if (serverProcessRef.current !== proc) return;
+        const wasReady = Boolean(previewUrlRef.current);
+        serverProcessRef.current = null;
+        serverReadyUnsubscribeRef.current?.();
+        serverReadyUnsubscribeRef.current = null;
         setIsServerRunning(false);
-        appendLog(`ℹ Server process exited with code ${code}`);
+        setStartingServer(false);
+        startingServerRef.current = false;
+        setPreviewUrl(null);
+        setServerPort(null);
+        updateServerStatus(wasReady ? "stopped" : "error", wasReady ? `Dev server stopped (code ${code})` : `Dev server exited before becoming ready (code ${code})`);
+        appendLog(wasReady ? `ℹ Server process exited with code ${code}` : `❌ Server exited before becoming ready (code ${code}). See process output above.`);
       });
     } catch (err: any) {
       console.warn("Spawn server error:", err);
+      updateServerStatus("error", err?.message || "Failed to spawn server process");
       appendLog([
         "❌ Failed to spawn server process.",
         `Error: ${err?.message || err}`,
       ]);
+      resetServerLifecycle();
     } finally {
-      setStartingServer(false);
+      // Remain STARTING until server-ready or process exit; do not infer readiness from spawn().
+      if (!serverProcessRef.current) {
+        setStartingServer(false);
+        startingServerRef.current = false;
+      }
     }
-  }, [activeFilePath, activeFileContent, isServerRunning, previewUrl]);
+  }, [activeFilePath, activeFileContent, broadcastPreview, resetServerLifecycle, updateServerStatus]);
+
+  handleStartServerRef.current = handleStartServer;
+
+  const handleRestartServer = useCallback(async () => {
+    resetServerLifecycle();
+    localStorage.removeItem("nudge-preview-url");
+    updateServerStatus("starting", "Restarting dev server...");
+    await handleStartServer({ openTab: false });
+  }, [handleStartServer, resetServerLifecycle, updateServerStatus]);
+
+  handleRestartServerRef.current = handleRestartServer;
 
   const handleStopServer = useCallback(() => {
-    if (serverProcessRef.current) {
-      try {
-        serverProcessRef.current.kill();
-      } catch (kErr) {
-        console.warn("Error stopping server process:", kErr);
-      }
-      serverProcessRef.current = null;
-    }
-    setIsServerRunning(false);
-    setTerminalLogs((prev) => [...prev, "🛑 Dev server stopped."]);
-  }, []);
+    resetServerLifecycle("🛑 Dev server stopped.");
+  }, [resetServerLifecycle]);
 
   const handleRunCode = async (cmd = "node", args = ["test.js"]) => {
     const isServerRun =
@@ -821,14 +890,6 @@ export default function CodingEnvironment({
           "======================================================",
           "✔ [Success] Process finished with exit code 0",
         ]);
-      } else if (isServerRun) {
-        setTerminalLogs((prev) => [
-          ...prev,
-          "📦 Installing dependencies...",
-          "✔ Dependencies installed.",
-          "🚀 Server running at http://localhost:5000",
-          "✔ Server active and listening on port 5000.",
-        ]);
       } else {
         appendLog([
           `❌ Command failed: ${fullCmd}`,
@@ -865,18 +926,65 @@ export default function CodingEnvironment({
           `✔ Live Preview refreshed for ${activeFilePath}`,
         ]);
       } else {
-        await handleStartServer();
+        await handleStartServer({ openTab: false });
       }
       return;
     }
 
-    // 3. If active file is JS / TS
+    // 3. If active file is explicitly a test/spec file
+    if (activeFilePath.includes("test") || activeFilePath.includes("spec")) {
+      await handleRunCode("node", [activeFilePath]);
+      return;
+    }
+
+    // 4. If active file is a server entry point
+    if (activeFilePath.includes("server") || activeFilePath.includes("app.js")) {
+      await handleStartServer({ openTab: false });
+      return;
+    }
+
+    // 5. Intelligent runner: check for project test suite in virtual filesystem
+    try {
+      const container = await getWebContainer();
+      let rootEntries: string[] = [];
+      try {
+        const entries = await container.fs.readdir(".", { withFileTypes: true });
+        rootEntries = entries.map((e: any) => (typeof e === "string" ? e : e.name));
+      } catch {}
+
+      // Check package.json for test script
+      if (rootEntries.includes("package.json")) {
+        try {
+          const rawPkg = await container.fs.readFile("package.json", "utf-8");
+          const pkg = JSON.parse(rawPkg);
+          if (pkg.scripts?.test) {
+            await handleRunCode("npm", ["test"]);
+            return;
+          }
+        } catch {}
+      }
+
+      // Check for backend/test.js
+      try {
+        await container.fs.readFile("backend/test.js", "utf-8");
+        await handleRunCode("node", ["backend/test.js"]);
+        return;
+      } catch {}
+
+      // Check for test.js
+      if (rootEntries.includes("test.js")) {
+        await handleRunCode("node", ["test.js"]);
+        return;
+      }
+    } catch {}
+
+    // 6. Fallback: if active file is JS / TS
     if (isJsActive || isTsActive) {
       await handleRunCode("node", [activeFilePath]);
       return;
     }
 
-    // 4. Default fallback: run test.js if no active script
+    // 7. Default fallback: run test.js
     await handleRunCode("node", ["test.js"]);
   }, [
     activeFilePath,
@@ -888,6 +996,18 @@ export default function CodingEnvironment({
     previewUrl,
     handleStartServer,
   ]);
+
+  // Auto-start dev server in background on project mount
+  const autoBootStartedRef = useRef(false);
+  useEffect(() => {
+    if (!loading && !isMounting && project?.files?.length && !autoBootStartedRef.current) {
+      autoBootStartedRef.current = true;
+      const timer = setTimeout(() => {
+        handleStartServer({ openTab: false });
+      }, 700);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, isMounting, project, handleStartServer]);
 
   const handleRunEvaluation = async () => {
     setEvaluating(true);
@@ -927,31 +1047,7 @@ export default function CodingEnvironment({
         }
       }
 
-      // 2. Build the minimal, focused AI Context (zero unrelated files sent)
-      const aiContext = buildAIContext(currentTask, targetFilesContent, project);
-
-      const res = await fetch("/api/ai/evaluate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          task: {
-            order: aiContext.taskOrder,
-            title: aiContext.taskTitle,
-            goal: aiContext.goal,
-            description: aiContext.description,
-            targetFiles: aiContext.targetFiles,
-            evaluationCriteria: aiContext.evaluationCriteria,
-          },
-          files: aiContext.files,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Evaluation failed");
-      }
-
-      const evalData = data.evaluation;
+      const evalData = await evaluateTask(currentTask, targetFilesContent, activeFilePath);
       const isPassed = Boolean(evalData.passed);
 
       setEvalResults({
@@ -965,7 +1061,7 @@ export default function CodingEnvironment({
         const taskKey = String(currentTask.order || currentTaskIndex + 1);
         const updatedCompleted = Array.from(new Set([...completedTasks, taskKey]));
         setCompletedTasks(updatedCompleted);
-        setActiveHint(null);
+        mentor.clearAnnotation();
 
         // Persist task completion to MongoDB
         try {
@@ -1097,10 +1193,7 @@ export default function CodingEnvironment({
     }).catch(() => null);
   };
 
-  // Trigger prompt from Aria inline nudge into AI Mentor
-  const handleAriaPrompt = (prompt: string) => {
-    setExternalAiPrompt(prompt);
-  };
+  const handleAriaPrompt = (prompt: string) => mentor.sendMessage(prompt);
 
   if (loading) {
     return (
@@ -1320,8 +1413,8 @@ export default function CodingEnvironment({
                             onFileLoaded={handleActiveFileLoaded}
                             onTriggerAriaNudge={handleAriaPrompt}
                             initialFiles={project?.files}
-                            activeHint={activeHint}
-                            onClearHint={() => setActiveHint(null)}
+                            activeHint={mentor.state.activeAnnotation}
+                            onClearHint={mentor.clearAnnotation}
                           />
                         </ResizablePanel>
 
@@ -1356,8 +1449,8 @@ export default function CodingEnvironment({
                         onFileLoaded={handleActiveFileLoaded}
                         onTriggerAriaNudge={handleAriaPrompt}
                         initialFiles={project?.files}
-                        activeHint={activeHint}
-                        onClearHint={() => setActiveHint(null)}
+                        activeHint={mentor.state.activeAnnotation}
+                        onClearHint={mentor.clearAnnotation}
                       />
                     )}
                   </ResizablePanel>
@@ -1434,10 +1527,9 @@ export default function CodingEnvironment({
                         {activeBottomTab === "evaluation" ? (
                           <>
                             <span className="text-[11px] text-[#71807C] flex items-center gap-1.5">
-                              <span>Ran 4 tests</span>
+                              <span>Ran {evalResults?.criteriaStatus?.length || 0} criteria</span>
                               <span>•</span>
-                              <span className="text-[#F06A6A] font-semibold">4 failed</span>
-                              <span>⏱ 2.4s</span>
+                              <span className="text-[#F06A6A] font-semibold">{(evalResults?.criteriaStatus || []).filter((criterion) => !criterion.passed).length} failed</span>
                             </span>
 
                             <button
@@ -1562,33 +1654,16 @@ export default function CodingEnvironment({
                           <div className="flex items-start gap-3 p-3.5 rounded-xl bg-[#11181A] border border-[#F06A6A]/30">
                             <XCircle className="h-5 w-5 text-[#F06A6A] shrink-0 mt-0.5" />
                             <div>
-                              <h3 className="text-sm font-bold text-[#F4F7F6]">Evaluation failed</h3>
+                              <h3 className="text-sm font-bold text-[#F4F7F6]">{evalResults?.passed ? "Evaluation passed" : "Evaluation incomplete"}</h3>
                               <p className="text-xs text-[#A9B5B2] mt-0.5">
-                                0 / 4 tests passed. Fix the issues below and try again.
+                                {evalResults?.overallFeedback || "Run an evaluation to see task feedback."}
                               </p>
                             </div>
                           </div>
 
                           {/* List of failed tests matching Screenshot 2 */}
                           <div className="space-y-2">
-                            {(evalResults?.criteriaStatus || [
-                              {
-                                title: "GET /api/feedback responds with HTTP status 200",
-                                feedback: "The server fails to start due to a ReferenceError/SyntaxError in backend/src/models/Feedback.js at line 12: 'res' is not defined at the top level."
-                              },
-                              {
-                                title: "Response body is an array of feedback documents",
-                                feedback: "Unable to verify because the application crashes on startup."
-                              },
-                              {
-                                title: "Each feedback item contains title, description, category, and votes",
-                                feedback: "Unable to verify because the application crashes on startup."
-                              },
-                              {
-                                title: "Feedback items are sorted in descending order",
-                                feedback: "Unable to verify because the application crashes on startup."
-                              }
-                            ]).map((crit, idx) => (
+                            {(evalResults?.criteriaStatus || []).map((crit, idx) => (
                               <div
                                 key={idx}
                                 className="p-3 rounded-xl bg-[#0D1214] border border-[#202A2C] space-y-1"
@@ -1648,31 +1723,12 @@ export default function CodingEnvironment({
             <AiMentor
               currentTask={currentTask}
               activeFilePath={activeFilePath}
-              activeFileContent={activeFileContent}
-              externalPrompt={externalAiPrompt}
-              onClearExternalPrompt={() => setExternalAiPrompt(null)}
-              files={project?.files}
-              modifiedFiles={modifiedFilesList}
-              evalResults={evalResults}
-              activeHint={activeHint}
-              onClearHint={() => setActiveHint(null)}
+              state={mentor.state}
+              onNudge={mentor.requestNudge}
+              onSend={mentor.sendMessage}
+              onClearHint={mentor.clearAnnotation}
+              onClearMessages={mentor.clearMessages}
               userName={user?.name || "Tanishq"}
-              onNudgeReceived={(nudge) => {
-                setActiveHint(nudge);
-                // If the nudge specifies a target file and it's not currently open, switch to it
-                if (nudge.targetFile) {
-                  const targetClean = nudge.targetFile.replace(/^\/+/, "");
-                  const matchingFile = project?.files?.find(
-                    (f) =>
-                      f.path.replace(/^\/+/, "") === targetClean ||
-                      f.path.endsWith("/" + targetClean) ||
-                      targetClean.endsWith("/" + f.path.replace(/^\/+/, ""))
-                  );
-                  if (matchingFile) {
-                    handleSelectTab(matchingFile.path);
-                  }
-                }
-              }}
             />
           </ResizablePanel>
         </ResizablePanelGroup>

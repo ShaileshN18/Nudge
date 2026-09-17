@@ -20,7 +20,20 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: "/((?!webcontainer/connect).*)",
+        source: "/preview",
+        headers: [
+          {
+            key: "Cross-Origin-Opener-Policy",
+            value: "unsafe-none",
+          },
+          {
+            key: "Cross-Origin-Embedder-Policy",
+            value: "unsafe-none",
+          },
+        ],
+      },
+      {
+        source: "/((?!webcontainer/connect|preview).*)",
         headers: [
           {
             key: "Cross-Origin-Opener-Policy",
