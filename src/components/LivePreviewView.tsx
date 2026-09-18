@@ -1,18 +1,17 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
-  Globe,
-  RefreshCw,
-  Copy,
-  Check,
   ExternalLink,
+  RefreshCw,
+  RotateCcw,
+  Square,
   Play,
-  Monitor,
-  Tablet,
-  Smartphone,
-  RotateCw,
   AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  Globe,
+  ChevronDown,
 } from "lucide-react";
 
 interface LivePreviewViewProps {
@@ -20,12 +19,14 @@ interface LivePreviewViewProps {
   serverPort: number | null;
   isServerRunning: boolean;
   startingServer: boolean;
-  onStartServer: () => void;
-  previewPath: string;
-  onChangePreviewPath: (path: string) => void;
+  onStartServer: () => void | Promise<void>;
+  previewPath?: string;
+  onChangePreviewPath?: (path: string) => void;
   serverError?: string | null;
   isCompact?: boolean;
 }
+
+const FRONTEND_ROUTES = [{ label: "Dashboard", path: "/" }];
 
 export default function LivePreviewView({
   previewUrl,
@@ -33,269 +34,373 @@ export default function LivePreviewView({
   isServerRunning,
   startingServer,
   onStartServer,
-  previewPath,
+  previewPath = "/",
   onChangePreviewPath,
-  serverError = null,
+  serverError,
   isCompact = false,
 }: LivePreviewViewProps) {
-  const [reloadKey, setReloadKey] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const [viewportMode, setViewportMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fullUrl = previewUrl ? `${previewUrl}${previewPath === "/" ? "" : previewPath}` : null;
+  /*
+   * IMPORTANT:
+   * previewUrl is ONLY the WebContainer server origin.
+   *
+   * Example:
+   * https://xxxxx-5000.xxxxx.webcontainer-api.io
+   *
+   * Never append /api/health or any backend health endpoint here.
+   */
+  const basePreviewUrl = useMemo(() => {
+    if (!previewUrl) return null;
 
-  const handleCopyUrl = () => {
-    if (!fullUrl) return;
-    navigator.clipboard.writeText(fullUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    return previewUrl.replace(/\/+$/, "");
+  }, [previewUrl]);
+
+  /*
+   * Only frontend preview routes are allowed.
+   *
+   * At the moment we intentionally only expose "/".
+   */
+  const normalizedPreviewPath =
+    previewPath && previewPath.startsWith("/") ? previewPath : "/";
+
+  /*
+   * URL displayed inside the iframe.
+   *
+   * This is the ONLY place where the selected frontend route is appended.
+   */
+  const iframeUrl = useMemo(() => {
+    if (!basePreviewUrl) return null;
+
+    if (normalizedPreviewPath === "/") {
+      return `${basePreviewUrl}/`;
+    }
+
+    return `${basePreviewUrl}${normalizedPreviewPath}`;
+  }, [basePreviewUrl, normalizedPreviewPath]);
+
+  /*
+   * IMPORTANT:
+   *
+   * Opening the preview should pass the BASE WebContainer URL
+   * to /preview.
+   *
+   * Do NOT pass iframeUrl here.
+   *
+   * Otherwise a route such as /api/health could accidentally
+   * become part of the preview URL.
+   */
+  const handleOpenExternalTab = () => {
+    if (!basePreviewUrl) return;
+
+    const portQuery = serverPort
+      ? `&port=${encodeURIComponent(String(serverPort))}`
+      : "";
+
+    const previewPageUrl =
+      `/preview?url=${encodeURIComponent(basePreviewUrl)}` +
+      portQuery;
+
+    window.open(previewPageUrl, "_blank", "noopener,noreferrer");
   };
 
-  const handleOpenExternalTab = (e?: React.MouseEvent) => {
-    if (e) e.preventDefault();
-    if (!fullUrl) return;
-    const portQuery = serverPort ? `&port=${serverPort}` : "";
-    // Open our /preview page in a new tab with the WebContainer URL and port
-    window.open(`/preview?url=${encodeURIComponent(fullUrl)}${portQuery}`, "_blank");
+  const handleRefresh = () => {
+    if (!iframeUrl) return;
+
+    setIsRefreshing(true);
+
+    /*
+     * Force iframe remount by briefly changing the key through
+     * the refresh state below.
+     */
+    window.setTimeout(() => {
+      setIsRefreshing(false);
+    }, 300);
   };
 
-  const handleReload = () => {
-    setReloadKey((k) => k + 1);
+  const handleRouteChange = (path: string) => {
+    /*
+     * Keep frontend navigation limited to actual frontend routes.
+     */
+    if (!path.startsWith("/")) return;
+
+    onChangePreviewPath?.(path);
   };
 
-  return (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#07090f] overflow-hidden w-full h-full">
-      {/* Address & Navigation Bar */}
-      <div className="h-10 bg-[#0b0f1a] border-b border-slate-800/80 px-3 flex items-center justify-between gap-3 shrink-0 select-none">
-        {/* Left: Status Badge & Reload */}
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/90 border border-slate-800 shrink-0">
-            {isServerRunning ? (
-              <>
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[11px] font-mono font-semibold text-emerald-300">
-                  {serverPort ? `:${serverPort} ONLINE` : "ONLINE"}
-                </span>
-              </>
-            ) : startingServer ? (
-              <>
-                <RefreshCw className="h-3 w-3 text-cyan-400 animate-spin" />
-                <span className="text-[11px] font-mono font-semibold text-cyan-300">
-                  STARTING...
-                </span>
-              </>
-            ) : serverError ? (
-              <>
-                <span className="h-2 w-2 rounded-full bg-rose-500" />
-                <span className="text-[11px] font-mono font-semibold text-rose-400">
-                  FAILED
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="h-2 w-2 rounded-full bg-slate-500" />
-                <span className="text-[11px] font-mono text-slate-400">
-                  OFFLINE
-                </span>
-              </>
+  /*
+   * ------------------------------------------------------------
+   * SERVER NOT RUNNING
+   * ------------------------------------------------------------
+   */
+
+  if (!isServerRunning && !startingServer) {
+    return (
+      <div className="flex h-full w-full flex-col bg-[#07090f] text-[#F4F7F6]">
+        {/* Header */}
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-[#20282A] bg-[#0D1214] px-3">
+          <div className="flex items-center gap-2">
+            <Globe className="h-4 w-4 text-[#6BCDB4]" />
+
+            <span className="text-xs font-semibold">
+              LIVE PREVIEW
+            </span>
+
+            {serverPort && (
+              <span className="rounded bg-[#151D1F] px-1.5 py-0.5 font-mono text-[10px] text-[#71807C]">
+                PORT {serverPort}
+              </span>
             )}
           </div>
 
-          {isServerRunning && (
-            <button
-              onClick={handleReload}
-              className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Reload preview"
-            >
-              <RotateCw className="h-3.5 w-3.5" />
-            </button>
-          )}
+          <div className="flex items-center gap-1.5">
+            {previewUrl && (
+              <button
+                type="button"
+                onClick={handleOpenExternalTab}
+                className="flex items-center gap-1.5 rounded-md border border-[#263234] bg-[#11181A] px-2 py-1.5 text-[11px] text-[#A9B5B2] transition-colors hover:bg-[#151D1F] hover:text-[#F4F7F6]"
+                title="Open preview in a new tab"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Center: Interactive URL Bar */}
-        <div className="flex items-center gap-1.5 flex-1 max-w-xl bg-[#131826] border border-slate-800/90 rounded-lg px-2.5 py-1 text-xs font-mono text-slate-300 min-w-0 shadow-inner">
-          <Globe className={`h-3.5 w-3.5 ${serverError ? "text-rose-400" : "text-cyan-400"} shrink-0`} />
-          <span className="truncate text-slate-400 select-all flex-1">
-            {previewUrl || (startingServer ? "Waiting for WebContainer preview URL…" : serverError ? "Dev server failed to start" : "No preview URL")}
-            <span className="text-indigo-400 font-bold">
-              {previewPath === "/" ? "" : previewPath}
+        {/* Offline state */}
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="flex max-w-sm flex-col items-center text-center">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-[#263234] bg-[#11181A]">
+              <Globe className="h-5 w-5 text-[#71807C]" />
+            </div>
+
+            <h3 className="text-sm font-medium text-[#F4F7F6]">
+              Preview is offline
+            </h3>
+
+            <p className="mt-1.5 text-xs leading-relaxed text-[#71807C]">
+              Start the development server to preview your application.
+            </p>
+
+            {serverError && (
+              <div className="mt-4 flex max-w-full items-start gap-2 rounded-lg border border-[#F06A6A]/30 bg-[#F06A6A]/5 px-3 py-2 text-left">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#F06A6A]" />
+
+                <p className="break-words text-[11px] leading-relaxed text-[#F0A0A0]">
+                  {serverError}
+                </p>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => void onStartServer()}
+              className="mt-5 flex items-center gap-2 rounded-lg bg-[#6BCDB4] px-4 py-2 text-xs font-semibold text-[#07100D] transition-opacity hover:opacity-90"
+            >
+              <Play className="h-3.5 w-3.5 fill-current" />
+              Start Server
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * SERVER STARTING
+   * ------------------------------------------------------------
+   */
+
+  if (startingServer) {
+    return (
+      <div className="flex h-full w-full flex-col bg-[#07090f] text-[#F4F7F6]">
+        {/* Header */}
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-[#20282A] bg-[#0D1214] px-3">
+          <div className="flex items-center gap-2">
+            <Globe className="h-4 w-4 text-[#6BCDB4]" />
+
+            <span className="text-xs font-semibold">
+              LIVE PREVIEW
             </span>
+
+            {serverPort && (
+              <span className="rounded bg-[#151D1F] px-1.5 py-0.5 font-mono text-[10px] text-[#71807C]">
+                PORT {serverPort}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Loading */}
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="flex flex-col items-center text-center">
+            <Loader2 className="h-7 w-7 animate-spin text-[#6BCDB4]" />
+
+            <p className="mt-3 text-xs font-medium text-[#F4F7F6]">
+              Starting development server…
+            </p>
+
+            <p className="mt-1 text-[11px] text-[#71807C]">
+              Waiting for WebContainer to become ready.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * ------------------------------------------------------------
+   * SERVER RUNNING
+   * ------------------------------------------------------------
+   */
+
+  return (
+    <div className="flex h-full w-full min-h-0 flex-col bg-[#07090f] text-[#F4F7F6]">
+      {/* ====================================================== */}
+      {/* HEADER */}
+      {/* ====================================================== */}
+
+      <div
+        className={`flex shrink-0 items-center justify-between border-b border-[#20282A] bg-[#0D1214] ${isCompact ? "h-10 px-2" : "h-11 px-3"
+          }`}
+      >
+        {/* Left */}
+        <div className="flex min-w-0 items-center gap-2">
+          <Globe className="h-4 w-4 shrink-0 text-[#6BCDB4]" />
+
+          <span className="shrink-0 text-xs font-semibold">
+            LIVE PREVIEW
           </span>
 
-          {fullUrl && (
-            <button
-              onClick={handleCopyUrl}
-              className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800/80 transition-colors cursor-pointer shrink-0"
-              title="Copy preview URL"
-            >
-              {copied ? (
-                <Check className="h-3.5 w-3.5 text-emerald-400" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
-            </button>
+          {serverPort && (
+            <span className="shrink-0 rounded bg-[#151D1F] px-1.5 py-0.5 font-mono text-[10px] text-[#71807C]">
+              PORT {serverPort}
+            </span>
           )}
+
+          <div className="flex items-center gap-1 rounded bg-[#10231E] px-1.5 py-0.5">
+            <CheckCircle2 className="h-3 w-3 text-[#6BCDB4]" />
+
+            <span className="text-[10px] font-medium text-[#6BCDB4]">
+              Online
+            </span>
+          </div>
         </div>
 
-        {/* Right: Quick Paths, Viewport Switcher & External Tab */}
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Quick Route Shortcuts */}
-          <div className="hidden md:flex items-center gap-1 shrink-0">
-            {[
-              { label: "Dashboard", path: "/" },
-              { label: "/api/health", path: "/api/health" },
-              { label: "/api/auth/me", path: "/api/auth/me" },
-            ].map((rt) => (
-              <button
-                key={rt.path}
-                onClick={() => onChangePreviewPath(rt.path)}
-                className={`px-2 py-0.5 rounded text-[11px] font-mono transition-all cursor-pointer ${
-                  previewPath === rt.path
-                    ? "bg-indigo-600 text-white font-semibold shadow-sm shadow-indigo-500/30"
-                    : "bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800"
-                }`}
+        {/* Right */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {/* Route selector */}
+          {FRONTEND_ROUTES.length > 1 && (
+            <div className="relative">
+              <select
+                value={normalizedPreviewPath}
+                onChange={(event) =>
+                  handleRouteChange(event.target.value)
+                }
+                className="appearance-none rounded-md border border-[#263234] bg-[#11181A] py-1.5 pl-2 pr-7 text-[10px] text-[#A9B5B2] outline-none transition-colors hover:bg-[#151D1F]"
+                aria-label="Preview route"
               >
-                {rt.label}
-              </button>
-            ))}
-          </div>
+                {FRONTEND_ROUTES.map((route) => (
+                  <option key={route.path} value={route.path}>
+                    {route.label}
+                  </option>
+                ))}
+              </select>
 
-          {/* Viewport size controls (visible when not compact) */}
-          {!isCompact && (
-            <div className="hidden lg:flex items-center bg-slate-900/90 border border-slate-800 rounded-md p-0.5 gap-0.5">
-              <button
-                onClick={() => setViewportMode("desktop")}
-                className={`p-1 rounded transition-colors ${
-                  viewportMode === "desktop"
-                    ? "bg-indigo-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-                title="Desktop View (100%)"
-              >
-                <Monitor className="h-3 w-3" />
-              </button>
-              <button
-                onClick={() => setViewportMode("tablet")}
-                className={`p-1 rounded transition-colors ${
-                  viewportMode === "tablet"
-                    ? "bg-indigo-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-                title="Tablet View (768px)"
-              >
-                <Tablet className="h-3 w-3" />
-              </button>
-              <button
-                onClick={() => setViewportMode("mobile")}
-                className={`p-1 rounded transition-colors ${
-                  viewportMode === "mobile"
-                    ? "bg-indigo-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-                title="Mobile View (375px)"
-              >
-                <Smartphone className="h-3 w-3" />
-              </button>
+              <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-[#71807C]" />
             </div>
           )}
 
-          {/* Open in External Tab Button */}
-          {previewUrl && (
-            <button
-              onClick={handleOpenExternalTab}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-[11px] font-semibold transition-all cursor-pointer shadow-sm hover:shadow-indigo-500/20"
-              title="Open Live Preview in an external browser tab"
-            >
-              <ExternalLink className="h-3 w-3" />
-              <span>Open in Tab</span>
-            </button>
-          )}
+          {/* Refresh */}
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={!iframeUrl || isRefreshing}
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-[#263234] bg-[#11181A] text-[#A9B5B2] transition-colors hover:bg-[#151D1F] hover:text-[#F4F7F6] disabled:cursor-not-allowed disabled:opacity-40"
+            title="Refresh preview"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""
+                }`}
+            />
+          </button>
+
+          {/* Open external */}
+          <button
+            type="button"
+            onClick={handleOpenExternalTab}
+            disabled={!basePreviewUrl}
+            className="flex items-center gap-1.5 rounded-md border border-[#263234] bg-[#11181A] px-2 py-1.5 text-[11px] text-[#A9B5B2] transition-colors hover:bg-[#151D1F] hover:text-[#F4F7F6] disabled:cursor-not-allowed disabled:opacity-40"
+            title="Open preview in a new browser tab"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+
+            {!isCompact && <span>Open</span>}
+          </button>
         </div>
       </div>
 
-      {/* Preview Viewport Container */}
-      <div className="flex-1 relative overflow-hidden bg-[#07090f] flex items-center justify-center p-0">
-        {isServerRunning ? (
-          previewUrl ? (
-            <div
-              className={`h-full transition-all duration-300 bg-[#080c14] ${
-                viewportMode === "mobile" && !isCompact
-                  ? "w-[375px] max-w-full my-3 border border-slate-700/60 rounded-xl shadow-2xl overflow-hidden"
-                  : viewportMode === "tablet" && !isCompact
-                  ? "w-[768px] max-w-full my-3 border border-slate-700/60 rounded-xl shadow-2xl overflow-hidden"
-                  : "w-full"
-              }`}
-            >
-              <iframe
-                key={`${reloadKey}-${previewPath}`}
-                src={`${previewUrl}${previewPath === "/" ? "" : previewPath}`}
-                className="w-full h-full border-0 bg-[#080c14]"
-                title="WebContainer Live Preview"
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-              />
-            </div>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-3">
-              <RefreshCw className="h-8 w-8 text-cyan-400 animate-spin mx-auto" />
-              <div className="space-y-1">
-                <h3 className="text-sm font-bold text-white">
-                  Connecting Live Preview...
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Waiting for WebContainer to provide the preview URL...
-                </p>
-              </div>
-            </div>
-          )
+      {/* ====================================================== */}
+      {/* URL BAR */}
+      {/* ====================================================== */}
+
+      {!isCompact && basePreviewUrl && (
+        <div className="flex h-8 shrink-0 items-center border-b border-[#20282A] bg-[#0A0E10] px-3">
+          <div className="flex min-w-0 flex-1 items-center rounded-md border border-[#20282A] bg-[#0D1214] px-2 py-1">
+            <span className="mr-2 shrink-0 text-[9px] font-medium uppercase tracking-wide text-[#71807C]">
+              URL
+            </span>
+
+            <span className="truncate font-mono text-[10px] text-[#8E9B98]">
+              {iframeUrl}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================== */}
+      {/* PREVIEW */}
+      {/* ====================================================== */}
+
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
+        {iframeUrl ? (
+          <iframe
+            key={iframeUrl}
+            src={iframeUrl}
+            title="Live application preview"
+            className="h-full w-full border-0"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+          />
         ) : (
-          <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-4 max-w-md mx-auto">
-            <div
-              className={`h-14 w-14 rounded-2xl ${
-                serverError
-                  ? "bg-rose-950/50 border-rose-700/40 text-rose-400 shadow-rose-950/40"
-                  : "bg-indigo-950/50 border-indigo-700/40 text-indigo-400 shadow-indigo-950/40"
-              } border flex items-center justify-center shadow-xl`}
-            >
-              {serverError ? <AlertTriangle className="h-7 w-7" /> : <Globe className="h-7 w-7" />}
+          <div className="flex h-full items-center justify-center bg-[#07090f]">
+            <div className="text-xs text-[#71807C]">
+              Waiting for preview URL…
             </div>
-            <div className="space-y-1.5">
-              <h3 className="text-base font-bold text-white">
-                {serverError ? "Dev Server Failed" : "Dev Server Offline"}
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                {serverError ||
-                  "Start your application to see the interactive live preview, test routes, and inspect real-time updates."}
-              </p>
-            </div>
-            <button
-              onClick={onStartServer}
-              disabled={startingServer}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl ${
-                serverError
-                  ? "bg-rose-600 hover:bg-rose-500 shadow-rose-600/25"
-                  : "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/25"
-              } text-white text-xs font-semibold shadow-lg transition-all cursor-pointer disabled:opacity-50`}
-            >
-              {startingServer ? (
-                <>
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  <span>Starting Dev Server...</span>
-                </>
-              ) : serverError ? (
-                <>
-                  <RotateCw className="h-3.5 w-3.5" />
-                  <span>Retry Dev Server</span>
-                </>
-              ) : (
-                <>
-                  <Play className="h-3.5 w-3.5 fill-white" />
-                  <span>Start Dev Server</span>
-                </>
-              )}
-            </button>
           </div>
         )}
       </div>
+
+      {/* ====================================================== */}
+      {/* FOOTER */}
+      {/* ====================================================== */}
+
+      {!isCompact && (
+        <div className="flex h-7 shrink-0 items-center justify-between border-t border-[#20282A] bg-[#0D1214] px-3">
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#6BCDB4]" />
+
+            <span className="text-[10px] text-[#71807C]">
+              Preview connected
+            </span>
+          </div>
+
+          <div className="font-mono text-[9px] text-[#596663]">
+            {normalizedPreviewPath}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

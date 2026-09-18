@@ -1,127 +1,290 @@
 "use client";
 
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertCircle,
+  CheckCircle2,
   ExternalLink,
+  Globe,
+  Loader2,
   RefreshCw,
   RotateCcw,
-  CheckCircle2,
-  AlertCircle,
   Terminal,
-  Zap,
 } from "lucide-react";
+
+type PreviewStatus = "connecting" | "connected" | "error";
 
 export default function PreviewPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [serverPort, setServerPort] = useState<string | null>(null);
-  const [status, setStatus] = useState<"connecting" | "connected" | "error">("connecting");
-  const [statusMessage, setStatusMessage] = useState<string>("Initializing WebContainer...");
+  const [status, setStatus] = useState<PreviewStatus>("connecting");
+  const [statusMessage, setStatusMessage] = useState(
+    "Connecting to the WebContainer..."
+  );
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [iframeKey, setIframeKey] = useState(0);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const connectedRef = useRef<boolean>(false);
-  connectedRef.current = status === "connected" && Boolean(previewUrl);
+
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const connectedRef = useRef(false);
 
-  const displayPort = serverPort || (() => {
-    if (!previewUrl) return null;
+  /*
+   * ------------------------------------------------------------
+   * Normalize the WebContainer URL
+   * ------------------------------------------------------------
+   *
+   * The URL passed to this page should be the BASE WebContainer
+   * origin only.
+   *
+   * Example:
+   * https://xxxxx-5000.xxxxx.webcontainer-api.io
+   *
+   * We intentionally do NOT append:
+   * /api/health
+   * /api/auth/me
+   * or any other backend route.
+   */
+  const normalizePreviewUrl = useCallback((url: string) => {
     try {
-      return new URL(previewUrl).port || null;
+      const parsed = new URL(url);
+
+      /*
+       * Remove any accidental pathname/query/hash that might
+       * have been passed into the preview page.
+       *
+       * The preview should always point at the application root.
+       */
+      parsed.pathname = "/";
+      parsed.search = "";
+      parsed.hash = "";
+
+      return parsed.toString().replace(/\/$/, "");
     } catch {
-      return null;
+      return url
+        .split("?")[0]
+        .split("#")[0]
+        .replace(/\/+$/, "");
     }
-  })();
+  }, []);
 
-  // Track elapsed seconds
+  /*
+   * ------------------------------------------------------------
+   * Read URL parameters
+   * ------------------------------------------------------------
+   */
   useEffect(() => {
-    if (status === "connected") return;
-    const interval = setInterval(() => {
-      setElapsedSeconds((s) => s + 1);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [status]);
-
-  // Connect to preview URL via query param, BroadcastChannel, or localStorage
-  useEffect(() => {
-    // 1. Check if URL was passed via query parameter (fastest, direct)
     const params = new URLSearchParams(window.location.search);
+
     const urlParam = params.get("url");
     const portParam = params.get("port");
-    if (portParam) {
-      setServerPort(portParam);
-    }
-    if (urlParam) {
-      try {
-        const decoded = decodeURIComponent(urlParam);
-        setPreviewUrl(decoded);
-        setStatus("connected");
-        setStatusMessage("Connected to live server");
-        localStorage.setItem("nudge-preview-url", decoded);
-        if (portParam) localStorage.setItem("nudge-preview-port", portParam);
-        localStorage.setItem("nudge-preview-status", "ready");
-        return;
-      } catch {
-        // Fall through to channel
-      }
+
+    if (!urlParam) {
+      setStatus("error");
+      setStatusMessage("No WebContainer preview URL was provided.");
+      return;
     }
 
-    // 2. Setup BroadcastChannel
+    try {
+      const decodedUrl = decodeURIComponent(urlParam);
+      const normalizedUrl = normalizePreviewUrl(decodedUrl);
+
+      setPreviewUrl(normalizedUrl);
+      setStatus("connected");
+      setStatusMessage("Connected to live server");
+      connectedRef.current = true;
+
+      if (portParam) {
+        setServerPort(portParam);
+      }
+
+      /*
+       * Store ONLY the base WebContainer URL.
+       */
+      localStorage.setItem("nudge-preview-url", normalizedUrl);
+
+      if (portParam) {
+        localStorage.setItem("nudge-preview-port", portParam);
+      }
+
+      localStorage.setItem("nudge-preview-status", "ready");
+    } catch (error) {
+      console.error("Failed to parse preview URL:", error);
+
+      setStatus("error");
+      setStatusMessage("Invalid WebContainer preview URL.");
+    }
+  }, [normalizePreviewUrl]);
+
+  /*
+   * ------------------------------------------------------------
+   * BroadcastChannel
+   * ------------------------------------------------------------
+   */
+  useEffect(() => {
     let channel: BroadcastChannel | null = null;
+
     try {
       channel = new BroadcastChannel("nudge-preview");
       channelRef.current = channel;
 
       channel.onmessage = (event) => {
         const data = event.data;
-        if (!data || typeof data !== "object") return;
 
+        if (!data || typeof data !== "object") {
+          return;
+        }
+
+        /*
+         * Workspace says the dev server is ready.
+         */
         if (data.type === "preview-url" && data.url) {
-          setPreviewUrl(data.url);
-          if (data.port) setServerPort(String(data.port));
+          const normalizedUrl = normalizePreviewUrl(data.url);
+
+          setPreviewUrl(normalizedUrl);
+
+          if (data.port) {
+            setServerPort(String(data.port));
+          }
+
           setStatus("connected");
           setStatusMessage("Connected to live server");
-          localStorage.setItem("nudge-preview-url", data.url);
-          if (data.port) localStorage.setItem("nudge-preview-port", String(data.port));
-          localStorage.setItem("nudge-preview-status", "ready");
-        } else if (data.type === "server-status") {
-          if (data.status === "ready" && data.url) {
-            setPreviewUrl(data.url);
-            if (data.port) setServerPort(String(data.port));
-            setStatus("connected");
-          } else if (data.status === "installing") {
-            setStatusMessage(data.message || "Installing project dependencies (npm install)...");
-          } else if (data.status === "starting") {
-            setStatusMessage(data.message || "Starting dev server...");
-          } else if (data.status === "stopped") {
-            setStatusMessage("Dev server stopped.");
+          connectedRef.current = true;
+
+          /*
+           * Store the BASE URL only.
+           */
+          localStorage.setItem("nudge-preview-url", normalizedUrl);
+
+          if (data.port) {
+            localStorage.setItem(
+              "nudge-preview-port",
+              String(data.port)
+            );
           }
-        } else if (data.type === "server-error") {
-          setStatusMessage(data.message || "Failed to start dev server");
+
+          localStorage.setItem("nudge-preview-status", "ready");
+
+          return;
+        }
+
+        /*
+         * Server lifecycle status.
+         */
+        if (data.type === "server-status") {
+          if (data.status === "ready" && data.url) {
+            const normalizedUrl = normalizePreviewUrl(data.url);
+
+            setPreviewUrl(normalizedUrl);
+
+            if (data.port) {
+              setServerPort(String(data.port));
+            }
+
+            setStatus("connected");
+            setStatusMessage("Connected to live server");
+            connectedRef.current = true;
+
+            localStorage.setItem(
+              "nudge-preview-url",
+              normalizedUrl
+            );
+
+            if (data.port) {
+              localStorage.setItem(
+                "nudge-preview-port",
+                String(data.port)
+              );
+            }
+
+            localStorage.setItem(
+              "nudge-preview-status",
+              "ready"
+            );
+          } else if (data.status === "installing") {
+            setStatus("connecting");
+            setStatusMessage(
+              data.message ||
+              "Installing project dependencies..."
+            );
+          } else if (data.status === "starting") {
+            setStatus("connecting");
+            setStatusMessage(
+              data.message || "Starting dev server..."
+            );
+          } else if (data.status === "stopped") {
+            setStatus("connecting");
+            setStatusMessage("Dev server stopped.");
+            connectedRef.current = false;
+          }
+
+          return;
+        }
+
+        /*
+         * Server failed.
+         */
+        if (data.type === "server-error") {
           setStatus("error");
+          setStatusMessage(
+            data.message || "Failed to start dev server."
+          );
+          connectedRef.current = false;
+
+          return;
         }
       };
 
-      // Request URL from workspace tab
-      channel.postMessage({ type: "request-preview-url" });
-    } catch {
-      // BroadcastChannel unavailable
+      /*
+       * Ask the workspace tab for the current server URL.
+       */
+      channel.postMessage({
+        type: "request-preview-url",
+      });
+    } catch (error) {
+      console.warn(
+        "BroadcastChannel unavailable:",
+        error
+      );
     }
 
-    // 3. Poll localStorage and periodic channel request
-    const pollInterval = setInterval(() => {
-      if (connectedRef.current) return;
+    return () => {
+      channel?.close();
+      channelRef.current = null;
+    };
+  }, [normalizePreviewUrl]);
 
-      const storedUrl = localStorage.getItem("nudge-preview-url");
-      const storedPort = localStorage.getItem("nudge-preview-port");
-      const storedStatus = localStorage.getItem("nudge-preview-status");
-      const storedMsg = localStorage.getItem("nudge-preview-status-message");
-
-      if (storedPort) {
-        setServerPort((curr) => curr || storedPort);
+  /*
+   * ------------------------------------------------------------
+   * localStorage fallback
+   * ------------------------------------------------------------
+   */
+  useEffect(() => {
+    const pollInterval = window.setInterval(() => {
+      if (connectedRef.current) {
+        return;
       }
 
-      if (storedMsg) {
-        setStatusMessage(storedMsg);
+      const storedUrl = localStorage.getItem(
+        "nudge-preview-url"
+      );
+
+      const storedPort = localStorage.getItem(
+        "nudge-preview-port"
+      );
+
+      const storedStatus = localStorage.getItem(
+        "nudge-preview-status"
+      );
+
+      const storedMessage = localStorage.getItem(
+        "nudge-preview-status-message"
+      );
+
+      if (storedPort) {
+        setServerPort((current) => current || storedPort);
+      }
+
+      if (storedMessage) {
+        setStatusMessage(storedMessage);
       }
 
       if (storedStatus === "error") {
@@ -129,231 +292,314 @@ export default function PreviewPage() {
         return;
       }
 
-      if (storedUrl && (storedStatus === "ready" || !storedStatus)) {
-        setPreviewUrl(storedUrl);
+      if (
+        storedUrl &&
+        (storedStatus === "ready" || !storedStatus)
+      ) {
+        const normalizedUrl =
+          normalizePreviewUrl(storedUrl);
+
+        setPreviewUrl(normalizedUrl);
         setStatus("connected");
         setStatusMessage("Connected to live server");
+        connectedRef.current = true;
+
         return;
       }
 
-      // Re-request via BroadcastChannel
+      /*
+       * Ask the workspace tab again.
+       */
       try {
-        channelRef.current?.postMessage({ type: "request-preview-url" });
+        channelRef.current?.postMessage({
+          type: "request-preview-url",
+        });
       } catch {
-        // Ignore
+        // Ignore BroadcastChannel errors.
       }
     }, 800);
 
-    // 4. Generous timeout (90 seconds) with recovery actions
-    const timeout = setTimeout(() => {
+    return () => {
+      window.clearInterval(pollInterval);
+    };
+  }, [normalizePreviewUrl]);
+
+  /*
+   * ------------------------------------------------------------
+   * Timeout
+   * ------------------------------------------------------------
+   */
+  useEffect(() => {
+    if (status === "connected") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
       if (!connectedRef.current) {
         setStatus("error");
+        setStatusMessage(
+          "The WebContainer preview could not be connected."
+        );
       }
     }, 90000);
 
     return () => {
-      channel?.close();
-      channelRef.current = null;
-      clearInterval(pollInterval);
-      clearTimeout(timeout);
+      window.clearTimeout(timeout);
     };
-  }, []);
+  }, [status]);
 
+  /*
+   * ------------------------------------------------------------
+   * Elapsed connection time
+   * ------------------------------------------------------------
+   */
+  useEffect(() => {
+    if (status === "connected") {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setElapsedSeconds((seconds) => seconds + 1);
+    }, 1000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [status]);
+
+  /*
+   * ------------------------------------------------------------
+   * Reload iframe
+   * ------------------------------------------------------------
+   */
   const handleReloadIframe = useCallback(() => {
-    setIframeKey((k) => k + 1);
+    setIframeKey((key) => key + 1);
   }, []);
 
+  /*
+   * ------------------------------------------------------------
+   * Restart server
+   * ------------------------------------------------------------
+   */
   const handleRestartServer = useCallback(() => {
     setStatus("connecting");
     setStatusMessage("Restarting dev server...");
     setElapsedSeconds(0);
+    connectedRef.current = false;
+
     try {
-      channelRef.current?.postMessage({ type: "restart-server" });
-    } catch {
-      // Ignore
+      channelRef.current?.postMessage({
+        type: "restart-server",
+      });
+    } catch (error) {
+      console.warn(
+        "Failed to request server restart:",
+        error
+      );
     }
   }, []);
 
+  /*
+   * ------------------------------------------------------------
+   * Retry connection
+   * ------------------------------------------------------------
+   */
   const handleRetry = useCallback(() => {
     setStatus("connecting");
-    setStatusMessage("Reconnecting to dev server...");
+    setStatusMessage(
+      "Requesting preview URL from workspace..."
+    );
     setElapsedSeconds(0);
+    connectedRef.current = false;
+
     try {
-      channelRef.current?.postMessage({ type: "start-server" });
-      channelRef.current?.postMessage({ type: "request-preview-url" });
-    } catch {
-      // Ignore
+      channelRef.current?.postMessage({
+        type: "request-preview-url",
+      });
+    } catch (error) {
+      console.warn(
+        "Failed to request preview URL:",
+        error
+      );
     }
   }, []);
 
+  /*
+   * ------------------------------------------------------------
+   * Open RAW WebContainer URL
+   * ------------------------------------------------------------
+   *
+   * This is intentionally NOT /api/health.
+   */
+  const handleOpenDirect = useCallback(() => {
+    if (!previewUrl) {
+      return;
+    }
+
+    window.open(
+      `${previewUrl}/`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }, [previewUrl]);
+
+  /*
+   * ------------------------------------------------------------
+   * Render
+   * ------------------------------------------------------------
+   */
+
   return (
-    <div className="h-screen w-screen bg-[#080C0D] flex flex-col overflow-hidden select-none font-sans">
-      {status === "connected" && previewUrl ? (
-        <>
-          {/* ── Top Bar ── */}
-          <div className="h-11 bg-[#0D1214] border-b border-[#202A2C] px-4 flex items-center justify-between shrink-0 select-none z-10">
-            {/* Left: Indicator & Title */}
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-[#67D6B2] animate-pulse" />
-                <span className="text-xs font-mono font-bold tracking-wider text-[#67D6B2]">
-                  LIVE PREVIEW
-                </span>
-              </div>
-              {displayPort && (
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#11181A] text-[#A9B5B2] border border-[#202A2C]">
-                  PORT {displayPort}
-                </span>
-              )}
-            </div>
-
-            {/* Center: Live URL display */}
-            <div className="hidden md:flex items-center gap-2 max-w-[500px]">
-              <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-[#080C0D] border border-[#202A2C] text-xs font-mono text-[#71807C] truncate max-w-full">
-                <span className="text-[#67D6B2]">🌐</span>
-                <span className="truncate text-[#A9B5B2]">{previewUrl}</span>
-              </div>
-            </div>
-
-            {/* Right: Actions */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleReloadIframe}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-[#11181A] hover:bg-[#162124] text-[#F4F7F6] border border-[#202A2C] hover:border-[#67D6B2]/30 transition-all cursor-pointer"
-                title="Reload Preview Frame"
-              >
-                <RefreshCw className="h-3.5 w-3.5 text-[#67D6B2]" />
-                <span>Reload</span>
-              </button>
-
-              <button
-                onClick={handleRestartServer}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-[#11181A] hover:bg-[#162124] text-[#A9B5B2] hover:text-[#F4F7F6] border border-[#202A2C] transition-all cursor-pointer"
-                title="Restart Dev Server in WebContainer"
-              >
-                <RotateCcw className="h-3.5 w-3.5 text-amber-400" />
-                <span>Restart Server</span>
-              </button>
-
-              <a
-                href={previewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-1.5 rounded-lg text-[#71807C] hover:text-[#F4F7F6] hover:bg-[#11181A] border border-transparent hover:border-[#202A2C] transition-colors"
-                title="Open Direct WebContainer URL in New Tab"
-              >
-                <ExternalLink className="h-4 w-4" />
-              </a>
-            </div>
+    <div className="flex h-screen w-full flex-col bg-[#07090f] text-[#F4F7F6]">
+      {/* Header */}
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-[#202A2C] bg-[#0D1214] px-3">
+        {/* Left */}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-[#263234] bg-[#11181A]">
+            <Globe className="h-3.5 w-3.5 text-[#67D6B2]" />
           </div>
 
-          {/* ── Full-screen Iframe Preview ── */}
-          <div className="flex-1 w-full h-full relative bg-[#0D1214]">
-            <iframe
-              key={iframeKey}
-              ref={iframeRef}
-              src={previewUrl}
-              className="w-full h-full border-0 bg-white"
-              title="Nudge Live Preview"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-            />
-          </div>
-        </>
-      ) : status === "error" ? (
-        /* ── Timeout / Error State ── */
-        <div className="flex-1 flex flex-col items-center justify-center p-6 text-[#F4F7F6]">
-          <div className="max-w-md w-full rounded-2xl bg-[#0D1214] border border-[#202A2C] p-8 shadow-2xl text-center space-y-6 animate-in fade-in">
-            <div className="mx-auto h-16 w-16 rounded-2xl bg-[#F06A6A]/10 border border-[#F06A6A]/30 flex items-center justify-center">
-              <AlertCircle className="h-8 w-8 text-[#F06A6A]" />
-            </div>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-xs font-semibold">
+              LIVE PREVIEW
+            </span>
 
-            <div className="space-y-2">
-              <h2 className="text-lg font-bold text-[#F4F7F6]">
-                Dev Server Taking Longer Than Expected
-              </h2>
-              <p className="text-xs text-[#A9B5B2] leading-relaxed">
-                The WebContainer dev server has not started or is still compiling dependencies. Make sure the workspace tab is still open and active.
-              </p>
-            </div>
+            {serverPort && (
+              <span className="rounded bg-[#151D1F] px-1.5 py-0.5 font-mono text-[10px] text-[#71807C]">
+                PORT {serverPort}
+              </span>
+            )}
 
-            <div className="p-3.5 rounded-xl bg-[#080C0D] border border-[#202A2C] text-left space-y-2 font-mono text-xs">
-              <div className="flex items-center gap-2 text-[#71807C]">
-                <Terminal className="h-3.5 w-3.5 text-[#67D6B2]" />
-                <span>Last known status:</span>
-              </div>
-              <div className="text-[#A9B5B2] pl-5 text-[11px] break-words">
-                {statusMessage}
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
-              <button
-                onClick={handleRetry}
-                className="w-full sm:flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#82CDBD] hover:bg-[#6BCDB4] text-[#080C0D] text-xs font-bold transition-all cursor-pointer shadow-lg shadow-[#82CDBD]/10"
-              >
-                <Zap className="h-4 w-4" />
-                <span>Start Dev Server</span>
-              </button>
-              <button
-                onClick={() => window.close()}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#11181A] hover:bg-[#162124] text-[#A9B5B2] hover:text-[#F4F7F6] border border-[#202A2C] text-xs font-medium transition-colors cursor-pointer"
-              >
-                Close Tab
-              </button>
-            </div>
+            {status === "connected" && (
+              <span className="flex items-center gap-1 rounded bg-[#10231E] px-1.5 py-0.5 text-[10px] font-medium text-[#67D6B2]">
+                <CheckCircle2 className="h-3 w-3" />
+                Connected
+              </span>
+            )}
           </div>
         </div>
-      ) : (
-        /* ── Connecting / Booting State ── */
-        <div className="flex-1 flex flex-col items-center justify-center p-6 text-[#F4F7F6]">
-          <div className="max-w-md w-full rounded-2xl bg-[#0D1214] border border-[#202A2C] p-8 shadow-2xl text-center space-y-6 animate-in fade-in">
-            {/* Animated Radar Pulse */}
-            <div className="relative mx-auto h-20 w-20 flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full bg-[#67D6B2]/10 animate-ping" />
-              <div className="relative h-16 w-16 rounded-2xl bg-[#11181A] border border-[#67D6B2]/40 flex items-center justify-center shadow-lg shadow-[#67D6B2]/10">
-                <RefreshCw className="h-7 w-7 text-[#67D6B2] animate-spin" />
-              </div>
-            </div>
 
-            <div className="space-y-2">
-              <h2 className="text-lg font-bold text-[#F4F7F6] tracking-tight">
-                Connecting to Live Preview
-              </h2>
-              <p className="text-xs text-[#A9B5B2] leading-relaxed">
-                Booting your code inside the WebContainer sandbox. This tab will automatically connect once the server is ready.
-              </p>
-            </div>
-
-            {/* Stepper Progression */}
-            <div className="space-y-2 text-left bg-[#080C0D] p-4 rounded-xl border border-[#202A2C]">
-              <div className="flex items-center gap-2.5 text-xs text-[#67D6B2]">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-[#67D6B2]" />
-                <span className="font-medium">WebContainer micro-OS initialized</span>
-              </div>
-              <div className="flex items-center gap-2.5 text-xs text-[#F4F7F6]">
-                <RefreshCw className="h-4 w-4 shrink-0 text-amber-400 animate-spin" />
-                <span className="font-medium truncate">{statusMessage}</span>
-              </div>
-              <div className="flex items-center gap-2.5 text-xs text-[#71807C]">
-                <span className="h-4 w-4 rounded-full border border-[#71807C]/40 flex items-center justify-center text-[10px]">
-                  3
-                </span>
-                <span>Mount live preview frame</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-[11px] font-mono text-[#71807C] px-1">
-              <span>Elapsed: {elapsedSeconds}s</span>
+        {/* Right */}
+        <div className="flex items-center gap-1.5">
+          {status === "connected" && previewUrl && (
+            <>
               <button
-                onClick={handleRestartServer}
-                className="text-[#67D6B2] hover:underline cursor-pointer"
+                type="button"
+                onClick={handleReloadIframe}
+                className="flex items-center gap-1.5 rounded-md border border-[#263234] bg-[#11181A] px-2 py-1.5 text-[11px] text-[#A9B5B2] transition-colors hover:bg-[#151D1F] hover:text-[#F4F7F6]"
+                title="Reload preview"
               >
-                Force Restart Server
+                <RefreshCw className="h-3.5 w-3.5" />
+                Reload
               </button>
-            </div>
+
+              <button
+                type="button"
+                onClick={handleRestartServer}
+                className="flex items-center gap-1.5 rounded-md border border-[#263234] bg-[#11181A] px-2 py-1.5 text-[11px] text-[#A9B5B2] transition-colors hover:bg-[#151D1F] hover:text-[#F4F7F6]"
+                title="Restart development server"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Restart
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenDirect}
+                className="flex items-center gap-1.5 rounded-md border border-[#263234] bg-[#11181A] px-2 py-1.5 text-[11px] text-[#A9B5B2] transition-colors hover:bg-[#151D1F] hover:text-[#F4F7F6]"
+                title="Open raw WebContainer URL"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      {/* URL bar */}
+      {previewUrl && (
+        <div className="flex h-8 shrink-0 items-center border-b border-[#202A2C] bg-[#080C0D] px-3">
+          <div className="flex min-w-0 flex-1 items-center rounded-md border border-[#202A2C] bg-[#0D1214] px-2 py-1">
+            <span className="mr-2 shrink-0 text-[9px] font-semibold uppercase tracking-wider text-[#596663]">
+              URL
+            </span>
+
+            <span className="truncate font-mono text-[10px] text-[#A9B5B2]">
+              {previewUrl}/
+            </span>
           </div>
         </div>
       )}
+
+      {/* Main */}
+      <main className="relative min-h-0 flex-1 overflow-hidden bg-white">
+        {status === "connected" && previewUrl ? (
+          <iframe
+            key={iframeKey}
+            src={`${previewUrl}/`}
+            className="h-full w-full border-0 bg-white"
+            title="Nudge Live Preview"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+          />
+        ) : status === "error" ? (
+          <div className="flex h-full items-center justify-center bg-[#07090f] p-6">
+            <div className="w-full max-w-md rounded-2xl border border-[#202A2C] bg-[#0D1214] p-7 text-center shadow-2xl">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#F06A6A]/30 bg-[#F06A6A]/10">
+                <AlertCircle className="h-7 w-7 text-[#F06A6A]" />
+              </div>
+
+              <h2 className="mt-4 text-sm font-semibold text-[#F4F7F6]">
+                Preview connection failed
+              </h2>
+
+              <p className="mt-2 text-xs leading-relaxed text-[#71807C]">
+                {statusMessage}
+              </p>
+
+              <div className="mt-4 rounded-lg border border-[#202A2C] bg-[#080C0D] p-3 text-left">
+                <div className="flex items-center gap-2 text-[10px] text-[#71807C]">
+                  <Terminal className="h-3.5 w-3.5 text-[#67D6B2]" />
+                  <span>Last known status</span>
+                </div>
+
+                <p className="mt-1.5 break-words pl-5 font-mono text-[10px] text-[#A9B5B2]">
+                  {statusMessage}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-[#67D6B2] px-4 py-2 text-xs font-semibold text-[#07100D] transition-opacity hover:opacity-90"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center bg-[#07090f]">
+            <div className="flex flex-col items-center text-center">
+              <Loader2 className="h-7 w-7 animate-spin text-[#67D6B2]" />
+
+              <h2 className="mt-4 text-sm font-semibold text-[#F4F7F6]">
+                Connecting Live Preview...
+              </h2>
+
+              <p className="mt-1.5 text-xs text-[#71807C]">
+                {statusMessage}
+              </p>
+
+              {elapsedSeconds > 3 && (
+                <p className="mt-2 font-mono text-[10px] text-[#596663]">
+                  {elapsedSeconds}s
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

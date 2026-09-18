@@ -1326,7 +1326,7 @@ try {
 const Feedback = {
   schema: feedbackSchema,
 
-  async find(query = {}) {
+  find(query = {}) {
     // If connected to real MongoDB, delegate to Mongoose
     if (mongoose.connection && mongoose.connection.readyState === 1) {
       return RealModel.find(query);

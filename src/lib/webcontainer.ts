@@ -4,7 +4,11 @@ import {
   type WebContainerProcess,
 } from "@webcontainer/api";
 
-export type ServerLifecycleStatus = "idle" | "starting" | "running" | "error";
+export type ServerLifecycleStatus =
+  | "idle"
+  | "starting"
+  | "running"
+  | "error";
 
 export interface DevServerState {
   status: ServerLifecycleStatus;
@@ -15,20 +19,18 @@ export interface DevServerState {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __webcontainerPromise: Promise<WebContainer> | undefined;
-  // eslint-disable-next-line no-var
   var __webcontainerInstance: WebContainer | undefined;
-  // eslint-disable-next-line no-var
+
   var __nudgeDevServerState: DevServerState | undefined;
-  // eslint-disable-next-line no-var
   var __nudgeDevServerProcess: WebContainerProcess | undefined;
-  // eslint-disable-next-line no-var
   var __nudgeDevServerUnsubscribe: (() => void) | undefined;
-  // eslint-disable-next-line no-var
   var __nudgeDevServerStartPromise: Promise<DevServerState> | undefined;
-  // eslint-disable-next-line no-var
-  var __nudgeDevServerListeners: Set<(state: DevServerState) => void> | undefined;
+  var __nudgeDevServerGeneration: number | undefined;
+  var __nudgeDevServerSetupProcess: WebContainerProcess | undefined;
+  var __nudgeDevServerListeners:
+    | Set<(state: DevServerState) => void>
+    | undefined;
 }
 
 export interface ProjectFileItem {
@@ -52,10 +54,31 @@ export interface DevServerOptions {
   onOutput?: (chunk: string) => void;
 }
 
-/**
- * Returns the singleton WebContainer instance.
- * Preserves the instance across Next.js Fast Refresh cycles using globalThis.
- */
+class DevServerStartCancelledError extends Error {
+  constructor() {
+    super("Dev server startup was cancelled");
+    this.name = "DevServerStartCancelledError";
+  }
+}
+
+function getDevServerGeneration(): number {
+  if (globalThis.__nudgeDevServerGeneration === undefined) {
+    globalThis.__nudgeDevServerGeneration = 0;
+  }
+
+  return globalThis.__nudgeDevServerGeneration;
+}
+
+function assertCurrentStart(generation: number): void {
+  if (getDevServerGeneration() !== generation) {
+    throw new DevServerStartCancelledError();
+  }
+}
+
+/* ============================================================
+   WEBCONTAINER
+   ============================================================ */
+
 export async function getWebContainer(): Promise<WebContainer> {
   if (typeof window === "undefined") {
     throw new Error(
@@ -63,26 +86,23 @@ export async function getWebContainer(): Promise<WebContainer> {
     );
   }
 
-  // Return existing booted instance if available
   if (globalThis.__webcontainerInstance) {
     return globalThis.__webcontainerInstance;
   }
 
-  // Return ongoing boot promise if in progress
   if (globalThis.__webcontainerPromise) {
     return globalThis.__webcontainerPromise;
   }
 
-  // Boot singleton instance
   globalThis.__webcontainerPromise = WebContainer.boot()
     .then((instance) => {
       globalThis.__webcontainerInstance = instance;
       return instance;
     })
     .catch((err) => {
-      // Clear cache on failure to allow retry
       globalThis.__webcontainerPromise = undefined;
       globalThis.__webcontainerInstance = undefined;
+
       console.error("Failed to boot WebContainer:", err);
       throw err;
     });
@@ -90,19 +110,21 @@ export async function getWebContainer(): Promise<WebContainer> {
   return globalThis.__webcontainerPromise;
 }
 
-/**
- * Transforms a flat list of project files into a WebContainer FileSystemTree.
- * Supports arbitrary nested directories and hidden/non-editable files.
- */
+/* ============================================================
+   FILE SYSTEM
+   ============================================================ */
+
 export function createFileSystemTree(
   files: Array<{ path: string; content: string }>
 ): FileSystemTree {
   const tree: FileSystemTree = {};
 
   for (const file of files) {
-    // Normalize path by trimming leading/trailing slashes
     const normalizedPath = file.path.replace(/^\/+|\/+$/g, "");
-    if (!normalizedPath) continue;
+
+    if (!normalizedPath) {
+      continue;
+    }
 
     const segments = normalizedPath.split("/");
     let currentLevel: any = tree;
@@ -123,6 +145,7 @@ export function createFileSystemTree(
             directory: {},
           };
         }
+
         currentLevel = currentLevel[segment].directory;
       }
     }
@@ -132,56 +155,83 @@ export function createFileSystemTree(
 }
 
 /**
- * Mounts project files into the WebContainer filesystem.
- * Accepts files from MongoDB Project or UserProject models.
+ * Mounts a complete project into WebContainer.
+ *
+ * IMPORTANT:
+ * This is the only operation that should replace the project filesystem.
+ * It stops the currently running server first.
  */
 export async function mountProject(
   files: Array<{ path: string; content: string }>
 ): Promise<WebContainer> {
   const webcontainer = await getWebContainer();
+
+  await stopDevServer();
+
+  const entries = await webcontainer.fs.readdir(".", {
+    withFileTypes: true,
+  });
+
+  await Promise.all(
+    entries.map((entry) => {
+      const name = typeof entry === "string" ? entry : entry.name;
+
+      return webcontainer.fs.rm(name, {
+        recursive: true,
+        force: true,
+      });
+    })
+  );
+
   const tree = createFileSystemTree(files);
+
   await webcontainer.mount(tree);
+
   return webcontainer;
 }
 
-/**
- * Reads the content of a file from the WebContainer.
- */
-export async function readProjectFile(filePath: string): Promise<string> {
+export async function readProjectFile(
+  filePath: string
+): Promise<string> {
   const webcontainer = await getWebContainer();
+
   const cleanPath = filePath.replace(/^\/+/, "");
+
   return await webcontainer.fs.readFile(cleanPath, "utf-8");
 }
 
-/**
- * Writes content to a file in the WebContainer.
- * Automatically creates parent directories if they don't exist.
- */
 export async function writeProjectFile(
   filePath: string,
   content: string
 ): Promise<void> {
   const webcontainer = await getWebContainer();
+
   const cleanPath = filePath.replace(/^\/+/, "");
 
   const lastSlashIndex = cleanPath.lastIndexOf("/");
+
   if (lastSlashIndex !== -1) {
-    const dirPath = cleanPath.slice(0, lastSlashIndex);
-    await webcontainer.fs.mkdir(dirPath, { recursive: true });
+    const directory = cleanPath.slice(0, lastSlashIndex);
+
+    await webcontainer.fs.mkdir(directory, {
+      recursive: true,
+    });
   }
 
   await webcontainer.fs.writeFile(cleanPath, content);
 }
 
-/**
- * Spawns a process in WebContainer with streaming output support for terminals.
- */
+/* ============================================================
+   PROCESS MANAGEMENT
+   ============================================================ */
+
 export async function spawnProcess(
   command: string,
   args: string[] = [],
   options?: SpawnProcessOptions
 ): Promise<WebContainerProcess> {
   const webcontainer = await getWebContainer();
+
   const process = await webcontainer.spawn(command, args);
 
   if (options?.output || options?.terminal) {
@@ -195,24 +245,139 @@ export async function spawnProcess(
         })
       )
       .catch(() => {
-        // Stream aborted/closed when process exits; ignore error
+        // Process output stream closed.
       });
   }
 
   return process;
 }
 
-/**
- * Executes a command and waits for it to complete, returning the exit code.
- */
 export async function runCommand(
   command: string,
   args: string[] = [],
   onOutput?: (chunk: string) => void
 ): Promise<number> {
-  const process = await spawnProcess(command, args, { output: onOutput });
+  const process = await spawnProcess(command, args, {
+    output: onOutput,
+  });
+
   return await process.exit;
 }
+
+/* ============================================================
+   STATIC SERVER
+   ============================================================ */
+
+export async function ensureStaticServerFile(): Promise<string> {
+  const scriptName = ".nudge_static_server.cjs";
+
+  const scriptContent = `
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+
+const PORT = process.env.PORT || 5000;
+
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".ico": "image/x-icon",
+  ".txt": "text/plain; charset=utf-8"
+};
+
+const server = http.createServer((req, res) => {
+  const requestUrl = req.url || "/";
+  const urlPath = requestUrl.split("?")[0];
+
+  let safePath = path
+    .normalize(urlPath)
+    .replace(/^\\.+[\\\\/]/, "");
+
+  if (safePath === "/" || safePath === "\\\\") {
+    safePath = "/index.html";
+  }
+
+  let filePath = path.join(".", safePath);
+
+  fs.stat(filePath, (statErr, stats) => {
+    if (!statErr && stats.isDirectory()) {
+      filePath = path.join(filePath, "index.html");
+    }
+
+    fs.readFile(filePath, (readErr, data) => {
+      if (readErr) {
+        // SPA fallback
+        if (
+          fs.existsSync("index.html") &&
+          !path.extname(safePath)
+        ) {
+          fs.readFile("index.html", (spaErr, spaData) => {
+            if (spaErr) {
+              res.writeHead(404, {
+                "Content-Type": "text/plain"
+              });
+
+              res.end("404 Not Found");
+              return;
+            }
+
+            res.writeHead(200, {
+              "Content-Type": "text/html; charset=utf-8"
+            });
+
+            res.end(spaData);
+          });
+
+          return;
+        }
+
+        res.writeHead(404, {
+          "Content-Type": "text/plain"
+        });
+
+        res.end("404 Not Found: " + urlPath);
+        return;
+      }
+
+      const extension = path.extname(filePath).toLowerCase();
+
+      const contentType =
+        MIME_TYPES[extension] ||
+        "application/octet-stream";
+
+      res.writeHead(200, {
+        "Content-Type": contentType
+      });
+
+      res.end(data);
+    });
+  });
+});
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(
+    "Nudge static server listening on port " + PORT
+  );
+});
+`;
+
+  await writeProjectFile(scriptName, scriptContent);
+
+  return scriptName;
+}
+
+/* ============================================================
+   SERVER COMMAND DETECTION
+   ============================================================ */
 
 export interface DetectedServerCommand {
   command: string;
@@ -221,100 +386,45 @@ export interface DetectedServerCommand {
   description: string;
 }
 
-/**
- * Ensures a lightweight, zero-dependency static HTTP server script exists in the WebContainer.
- * Used to serve index.html / frontend assets when no custom backend or dev server exists.
- */
-export async function ensureStaticServerFile(): Promise<string> {
-  const scriptName = ".nudge_static_server.cjs";
-  const scriptContent = `const http = require('http');
-const fs = require('fs');
-const path = require('path');
-
-const PORT = process.env.PORT || 5000;
-const MIME_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.htm': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.ico': 'image/x-icon',
-  '.txt': 'text/plain; charset=utf-8',
-};
-
-const server = http.createServer((req, res) => {
-  const urlPath = req.url ? req.url.split('?')[0] : '/';
-  let safePath = path.normalize(urlPath).replace(/^(\\.\\.[\\/\\\\])+/, '');
-  if (safePath === '/' || safePath === '\\\\') safePath = '/index.html';
-  
-  let filePath = path.join('.', safePath);
-
-  fs.stat(filePath, (err, stats) => {
-    if (!err && stats.isDirectory()) {
-      filePath = path.join(filePath, 'index.html');
-    }
-
-    fs.readFile(filePath, (readErr, data) => {
-      if (readErr) {
-        if (fs.existsSync('index.html') && !path.extname(safePath)) {
-          fs.readFile('index.html', (spaErr, spaData) => {
-            if (spaErr) {
-              res.writeHead(404, { 'Content-Type': 'text/plain' });
-              res.end('404 Not Found');
-            } else {
-              res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-              res.end(spaData);
-            }
-          });
-          return;
-        }
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('404 Not Found: ' + urlPath);
-        return;
-      }
-
-      const ext = path.extname(filePath).toLowerCase();
-      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-      res.writeHead(200, { 'Content-Type': contentType });
-      res.end(data);
-    });
-  });
-});
-
-server.listen(PORT, () => {
-  console.log('🚀 Static Web Server listening on port ' + PORT);
-});
-`;
-  await writeProjectFile(scriptName, scriptContent);
-  return scriptName;
-}
-
-/**
- * Automatically inspects the WebContainer filesystem and detects the appropriate
- * command to start the project's dev/web server.
- */
 export async function detectServerCommand(): Promise<DetectedServerCommand> {
   const container = await getWebContainer();
+
   let rootFiles: string[] = [];
+
   try {
-    const entries = await container.fs.readdir(".", { withFileTypes: true });
-    rootFiles = entries.map((e) => (typeof e === "string" ? e : e.name));
-  } catch (err) {
-    console.warn("Failed to read root directory for server detection:", err);
+    const entries = await container.fs.readdir(".", {
+      withFileTypes: true,
+    });
+
+    rootFiles = entries.map((entry) =>
+      typeof entry === "string"
+        ? entry
+        : entry.name
+    );
+  } catch (error) {
+    console.warn(
+      "Failed to inspect WebContainer filesystem:",
+      error
+    );
   }
 
-  // 1. Check package.json scripts
+  /* ----------------------------------------------------------
+     1. package.json scripts
+     ---------------------------------------------------------- */
+
   if (rootFiles.includes("package.json")) {
     try {
-      const rawPkg = await container.fs.readFile("package.json", "utf-8");
-      const pkg = JSON.parse(rawPkg);
-      if (pkg.scripts?.dev) {
+      const rawPackage = await container.fs.readFile(
+        "package.json",
+        "utf-8"
+      );
+
+      const packageJson = JSON.parse(rawPackage);
+
+      /*
+       * Frontend/dev server takes priority over server.js.
+       */
+      if (packageJson.scripts?.dev) {
         return {
           command: "npm",
           args: ["run", "dev"],
@@ -322,7 +432,8 @@ export async function detectServerCommand(): Promise<DetectedServerCommand> {
           description: "npm run dev",
         };
       }
-      if (pkg.scripts?.start) {
+
+      if (packageJson.scripts?.start) {
         return {
           command: "npm",
           args: ["start"],
@@ -330,25 +441,70 @@ export async function detectServerCommand(): Promise<DetectedServerCommand> {
           description: "npm start",
         };
       }
-    } catch {
-      // Ignore JSON parse error, fall through
+    } catch (error) {
+      console.warn(
+        "Could not parse package.json:",
+        error
+      );
     }
   }
 
-  // 2. Check Node backend server entry points
+  /* ----------------------------------------------------------
+     2. Static frontend
+     ---------------------------------------------------------- */
+
+  const frontendFiles = [
+    "vite.config.js",
+    "vite.config.ts",
+    "vite.config.mjs",
+    "next.config.js",
+    "next.config.mjs",
+    "next.config.ts",
+    "src",
+    "app",
+    "pages",
+    "index.html",
+  ];
+
+  const hasFrontendStructure = frontendFiles.some(
+    (file) => rootFiles.includes(file)
+  );
+
+  if (hasFrontendStructure) {
+    const staticScript =
+      await ensureStaticServerFile();
+
+    return {
+      command: "node",
+      args: [staticScript],
+      type: "static-html",
+      description: "Static Web Server",
+    };
+  }
+
+  /* ----------------------------------------------------------
+     3. Backend Node server
+     ---------------------------------------------------------- */
+
   const candidateServers = [
     "server.js",
     "app.js",
-    "index.js",
     "src/server.js",
     "src/index.js",
     "src/app.js",
+    "index.js",
   ];
+
   for (const candidate of candidateServers) {
     if (candidate.includes("/")) {
       try {
-        const stat = await container.fs.readFile(candidate, "utf-8");
-        if (stat) {
+        const content =
+          await container.fs.readFile(
+            candidate,
+            "utf-8"
+          );
+
+        if (content) {
           return {
             command: "node",
             args: [candidate],
@@ -357,7 +513,7 @@ export async function detectServerCommand(): Promise<DetectedServerCommand> {
           };
         }
       } catch {
-        // Does not exist
+        // File doesn't exist.
       }
     } else if (rootFiles.includes(candidate)) {
       return {
@@ -369,20 +525,34 @@ export async function detectServerCommand(): Promise<DetectedServerCommand> {
     }
   }
 
-  // 3. Check for HTML frontend projects (e.g. index.html or any html file)
-  const hasHtml = rootFiles.some((f) => f.toLowerCase().endsWith(".html"));
-  if (hasHtml || rootFiles.includes("index.html")) {
-    const staticScript = await ensureStaticServerFile();
+  /* ----------------------------------------------------------
+     4. Plain HTML project
+     ---------------------------------------------------------- */
+
+  const hasHtml =
+    rootFiles.some((file) =>
+      file.toLowerCase().endsWith(".html")
+    );
+
+  if (hasHtml) {
+    const staticScript =
+      await ensureStaticServerFile();
+
     return {
       command: "node",
       args: [staticScript],
       type: "static-html",
-      description: "Static Web Server (index.html)",
+      description: "Static Web Server",
     };
   }
 
-  // 4. Default fallback: create static server for current directory
-  const staticScript = await ensureStaticServerFile();
+  /* ----------------------------------------------------------
+     5. Final fallback
+     ---------------------------------------------------------- */
+
+  const staticScript =
+    await ensureStaticServerFile();
+
   return {
     command: "node",
     args: [staticScript],
@@ -390,11 +560,17 @@ export async function detectServerCommand(): Promise<DetectedServerCommand> {
     description: "WebContainer Dev Server",
   };
 }
+/* ============================================================
+   SERVER STATE
+   ============================================================ */
 
-function getDevServerListeners(): Set<(state: DevServerState) => void> {
+function getDevServerListeners(): Set<
+  (state: DevServerState) => void
+> {
   if (!globalThis.__nudgeDevServerListeners) {
     globalThis.__nudgeDevServerListeners = new Set();
   }
+
   return globalThis.__nudgeDevServerListeners;
 }
 
@@ -408,17 +584,25 @@ export function getDevServerState(): DevServerState {
       commandUsed: null,
     };
   }
+
   return globalThis.__nudgeDevServerState;
 }
 
-function setDevServerState(nextState: DevServerState): void {
+function setDevServerState(
+  nextState: DevServerState
+): void {
   globalThis.__nudgeDevServerState = nextState;
+
   const listeners = getDevServerListeners();
+
   for (const listener of listeners) {
     try {
       listener(nextState);
-    } catch (err) {
-      console.error("Error in DevServer listener:", err);
+    } catch (error) {
+      console.error(
+        "DevServer state listener error:",
+        error
+      );
     }
   }
 }
@@ -427,44 +611,101 @@ export function subscribeDevServer(
   listener: (state: DevServerState) => void
 ): () => void {
   const listeners = getDevServerListeners();
+
   listeners.add(listener);
+
   try {
     listener(getDevServerState());
-  } catch (err) {
-    console.error("Error invoking DevServer subscriber:", err);
+  } catch (error) {
+    console.error(
+      "DevServer subscriber error:",
+      error
+    );
   }
+
   return () => {
     listeners.delete(listener);
   };
 }
 
-/**
- * Cleanly stops the active dev server, ensuring the process terminates
- * and network ports are fully released.
- */
+/* ============================================================
+   STOP SERVER
+   ============================================================ */
+
 export async function stopDevServer(): Promise<void> {
-  const currentProcess = globalThis.__nudgeDevServerProcess;
-  const unsubscribe = globalThis.__nudgeDevServerUnsubscribe;
+  /*
+   * Increment generation FIRST.
+   *
+   * Any startup that was already in progress becomes invalid.
+   */
+  globalThis.__nudgeDevServerGeneration =
+    getDevServerGeneration() + 1;
+
+  const startPromise =
+    globalThis.__nudgeDevServerStartPromise;
+
+  const currentProcess =
+    globalThis.__nudgeDevServerProcess;
+
+  const setupProcess =
+    globalThis.__nudgeDevServerSetupProcess;
+
+  const unsubscribe =
+    globalThis.__nudgeDevServerUnsubscribe;
 
   if (unsubscribe) {
     try {
       unsubscribe();
-    } catch {}
-    globalThis.__nudgeDevServerUnsubscribe = undefined;
+    } catch { }
+
+    globalThis.__nudgeDevServerUnsubscribe =
+      undefined;
   }
 
-  if (currentProcess) {
+  const processes = [
+    setupProcess,
+    currentProcess,
+  ].filter(
+    (process): process is WebContainerProcess =>
+      Boolean(process)
+  );
+
+  for (const process of processes) {
     try {
-      currentProcess.kill();
-      await Promise.race([
-        currentProcess.exit,
-        new Promise((resolve) => setTimeout(resolve, 1500)),
-      ]);
-    } catch {}
-    globalThis.__nudgeDevServerProcess = undefined;
+      process.kill();
+    } catch { }
   }
 
-  globalThis.__nudgeDevServerStartPromise = undefined;
+  for (const process of processes) {
+    try {
+      await process.exit;
+    } catch { }
+  }
+
+  if (
+    globalThis.__nudgeDevServerProcess ===
+    currentProcess
+  ) {
+    globalThis.__nudgeDevServerProcess =
+      undefined;
+  }
+
+  if (
+    globalThis.__nudgeDevServerSetupProcess ===
+    setupProcess
+  ) {
+    globalThis.__nudgeDevServerSetupProcess =
+      undefined;
+  }
+
+  if (startPromise) {
+    try {
+      await startPromise;
+    } catch {
+      // Expected when startup was cancelled.
+    }
+  }
+
   setDevServerState({
     status: "idle",
     port: null,
@@ -474,33 +715,48 @@ export async function stopDevServer(): Promise<void> {
   });
 }
 
-/**
- * Starts the project's dev server and listens for WebContainer's 'server-ready' event.
- * Follows the authoritative lifecycle: idle -> starting -> running / error.
- * Prevents multiple concurrent processes and returns in-flight promises.
- */
+/* ============================================================
+   START SERVER
+   ============================================================ */
+
 export async function startDevServer(
   options: DevServerOptions = {}
 ): Promise<DevServerState> {
   const currentState = getDevServerState();
 
-  // 1. If server is already running with an active URL, return immediately (idempotent)
-  if (currentState.status === "running" && currentState.url) {
-    options.onServerReady?.(currentState.port || 0, currentState.url);
+  /*
+   * Already running.
+   */
+  if (
+    currentState.status === "running" &&
+    currentState.url
+  ) {
+    options.onServerReady?.(
+      currentState.port || 0,
+      currentState.url
+    );
+
     return currentState;
   }
 
-  // 2. If server startup is already in flight, return existing promise (prevents duplicate start / double clicks)
+  /*
+   * Startup already happening.
+   */
   if (globalThis.__nudgeDevServerStartPromise) {
     return globalThis.__nudgeDevServerStartPromise;
   }
 
-  // 3. Initiate single authoritative startup
-  const startPromise = (async (): Promise<DevServerState> => {
-    // If a stale process reference exists, terminate it cleanly first
+  const generation = getDevServerGeneration();
+
+  const startPromise = (async () => {
+    /*
+     * Kill stale process if one somehow remains.
+     */
     if (globalThis.__nudgeDevServerProcess) {
       await stopDevServer();
     }
+
+    assertCurrentStart(generation);
 
     setDevServerState({
       status: "starting",
@@ -512,18 +768,29 @@ export async function startDevServer(
 
     const webcontainer = await getWebContainer();
 
-    // Command resolution
+    assertCurrentStart(generation);
+
+    /* --------------------------------------------------------
+       Detect command
+       -------------------------------------------------------- */
+
     let command = options.command;
     let args = options.args;
     let commandDescription = "";
 
     if (!command) {
-      const detected = await detectServerCommand();
+      const detected =
+        await detectServerCommand();
+
+      assertCurrentStart(generation);
+
       command = detected.command;
       args = detected.args;
-      commandDescription = detected.description;
+      commandDescription =
+        detected.description;
     } else {
-      commandDescription = `${command} ${(args || []).join(" ")}`.trim();
+      commandDescription =
+        `${command} ${(args || []).join(" ")}`.trim();
     }
 
     setDevServerState({
@@ -534,223 +801,553 @@ export async function startDevServer(
       commandUsed: commandDescription,
     });
 
-    options.onOutput?.(`➜ ${commandDescription}\n⚡ [WebContainer] Starting ${commandDescription}...\n`);
+    options.onOutput?.(
+      `➜ ${commandDescription}\n` +
+      `⚡ Starting WebContainer server...\n`
+    );
 
-    // Check if npm install is needed
+    /* --------------------------------------------------------
+       npm install
+       -------------------------------------------------------- */
+
     if (
       command === "npm" ||
-      (command === "node" && args?.[0]?.includes("server"))
+      (
+        command === "node" &&
+        args?.[0]?.includes("server")
+      )
     ) {
       let hasNodeModules = false;
+
       try {
-        const entries = await webcontainer.fs.readdir(".", { withFileTypes: true });
+        const entries =
+          await webcontainer.fs.readdir(".", {
+            withFileTypes: true,
+          });
+
         hasNodeModules = entries.some(
-          (e: any) => (typeof e === "string" ? e : e.name) === "node_modules"
+          (entry: any) =>
+            (
+              typeof entry === "string"
+                ? entry
+                : entry.name
+            ) === "node_modules"
         );
       } catch {
         hasNodeModules = false;
       }
 
       if (!hasNodeModules) {
-        options.onOutput?.("📦 Installing project dependencies (npm install)...\n");
-        const installProc = await spawnProcess("npm", ["install"], {
-          output: options.onOutput,
-        });
-        const installExitCode = await installProc.exit;
-        if (installExitCode !== 0) {
-          const errMessage = `Dependency installation (npm install) failed with exit code ${installExitCode}`;
-          options.onOutput?.(`❌ ${errMessage}\n`);
-          const failedState: DevServerState = {
+        assertCurrentStart(generation);
+
+        options.onOutput?.(
+          "📦 Installing dependencies...\n"
+        );
+
+        const installProcess =
+          await spawnProcess(
+            "npm",
+            ["install"],
+            {
+              output: options.onOutput,
+            }
+          );
+
+        globalThis.__nudgeDevServerSetupProcess =
+          installProcess;
+
+        const exitCode =
+          await installProcess.exit;
+
+        if (
+          globalThis.__nudgeDevServerSetupProcess ===
+          installProcess
+        ) {
+          globalThis.__nudgeDevServerSetupProcess =
+            undefined;
+        }
+
+        assertCurrentStart(generation);
+
+        if (exitCode !== 0) {
+          const errorMessage =
+            `npm install failed with exit code ${exitCode}`;
+
+          setDevServerState({
             status: "error",
             port: null,
             url: null,
-            error: errMessage,
+            error: errorMessage,
             commandUsed: commandDescription,
-          };
-          setDevServerState(failedState);
-          throw new Error(errMessage);
+          });
+
+          options.onOutput?.(
+            `❌ ${errorMessage}\n`
+          );
+
+          throw new Error(errorMessage);
         }
-        options.onOutput?.("✔ Dependencies ready.\n");
+
+        options.onOutput?.(
+          "✔ Dependencies ready.\n"
+        );
       }
     }
 
-    // Set up server-ready listener BEFORE spawning the process
-    let resolveServerReady: (state: DevServerState) => void;
-    let rejectServerReady: (err: Error) => void;
-    const readyPromise = new Promise<DevServerState>((resolve, reject) => {
-      resolveServerReady = resolve;
-      rejectServerReady = reject;
-    });
+    /* --------------------------------------------------------
+       WAIT FOR SERVER READY
+       -------------------------------------------------------- */
 
+    let resolveServerReady:
+      (state: DevServerState) => void;
+
+    let rejectServerReady:
+      (error: Error) => void;
+
+    const readyPromise =
+      new Promise<DevServerState>(
+        (resolve, reject) => {
+          resolveServerReady = resolve;
+          rejectServerReady = reject;
+        }
+      );
+
+    /*
+     * IMPORTANT:
+     * Register server-ready BEFORE spawn().
+     */
     if (globalThis.__nudgeDevServerUnsubscribe) {
       try {
         globalThis.__nudgeDevServerUnsubscribe();
-      } catch {}
-      globalThis.__nudgeDevServerUnsubscribe = undefined;
+      } catch { }
+
+      globalThis.__nudgeDevServerUnsubscribe =
+        undefined;
     }
 
-    const unsubscribe = webcontainer.on("server-ready", (port, url) => {
-      const readyState: DevServerState = {
-        status: "running",
-        port,
-        url,
-        error: null,
-        commandUsed: commandDescription,
-      };
-      setDevServerState(readyState);
-      options.onServerReady?.(port, url);
-      options.onOutput?.(
-        `✔ [WebContainer] Dev Server Ready! Listening on port ${port}\n🌐 Live Preview URL: ${url}\n`
+    const unsubscribe =
+      webcontainer.on(
+        "server-ready",
+        (port, url) => {
+          /*
+           * Ignore events belonging to an old startup.
+           */
+          if (
+            getDevServerGeneration() !==
+            generation
+          ) {
+            return;
+          }
+
+          /*
+           * DO NOT append /health.
+           *
+           * `url` is the actual WebContainer preview URL.
+           */
+          const previewUrl =
+            normalizePreviewUrl(url);
+
+          const readyState: DevServerState = {
+            status: "running",
+            port,
+            url: previewUrl,
+            error: null,
+            commandUsed:
+              commandDescription,
+          };
+
+          setDevServerState(readyState);
+
+          options.onServerReady?.(
+            port,
+            previewUrl
+          );
+
+          options.onOutput?.(
+            `✔ WebContainer server ready\n` +
+            `🌐 Preview: ${previewUrl}\n`
+          );
+
+          resolveServerReady(readyState);
+        }
       );
-      resolveServerReady(readyState);
-    });
-    globalThis.__nudgeDevServerUnsubscribe = unsubscribe;
 
-    // Spawn server process
-    const proc = await spawnProcess(command, args || [], {
-      output: options.onOutput,
-    });
-    globalThis.__nudgeDevServerProcess = proc;
+    globalThis.__nudgeDevServerUnsubscribe =
+      unsubscribe;
 
-    // Attach exit handler
-    proc.exit.then((code) => {
-      if (globalThis.__nudgeDevServerProcess !== proc) return;
+    /* --------------------------------------------------------
+       SPAWN SERVER
+       -------------------------------------------------------- */
 
-      globalThis.__nudgeDevServerProcess = undefined;
-      if (globalThis.__nudgeDevServerUnsubscribe) {
+    assertCurrentStart(generation);
+
+    const process =
+      await spawnProcess(
+        command,
+        args || [],
+        {
+          output: options.onOutput,
+        }
+      );
+
+    /*
+     * Startup was cancelled while spawn() was happening.
+     */
+    if (
+      getDevServerGeneration() !==
+      generation
+    ) {
+      if (
+        globalThis.__nudgeDevServerUnsubscribe ===
+        unsubscribe
+      ) {
         try {
-          globalThis.__nudgeDevServerUnsubscribe();
-        } catch {}
-        globalThis.__nudgeDevServerUnsubscribe = undefined;
+          unsubscribe();
+        } catch { }
+
+        globalThis.__nudgeDevServerUnsubscribe =
+          undefined;
       }
 
-      const wasRunning = getDevServerState().status === "running";
-      const errorMsg = wasRunning
-        ? (code === 0 ? null : `Dev server stopped (code ${code})`)
-        : `Dev server exited before becoming ready (code ${code}). See terminal output.`;
+      try {
+        process.kill();
+        await process.exit;
+      } catch { }
 
-      const exitStatus: ServerLifecycleStatus = wasRunning
-        ? (code === 0 ? "idle" : "error")
-        : "error";
+      throw new DevServerStartCancelledError();
+    }
+
+    globalThis.__nudgeDevServerProcess =
+      process;
+
+    /* --------------------------------------------------------
+       PROCESS EXIT
+       -------------------------------------------------------- */
+
+    process.exit.then((code) => {
+      if (
+        globalThis.__nudgeDevServerProcess !==
+        process
+      ) {
+        return;
+      }
+
+      globalThis.__nudgeDevServerProcess =
+        undefined;
+
+      if (
+        globalThis.__nudgeDevServerUnsubscribe
+      ) {
+        try {
+          globalThis.__nudgeDevServerUnsubscribe();
+        } catch { }
+
+        globalThis.__nudgeDevServerUnsubscribe =
+          undefined;
+      }
+
+      const wasRunning =
+        getDevServerState().status ===
+        "running";
+
+      const errorMessage = wasRunning
+        ? (
+          code === 0
+            ? null
+            : `Dev server stopped (code ${code})`
+        )
+        : `Dev server exited before becoming ready (code ${code})`;
+
+      const status: ServerLifecycleStatus =
+        wasRunning
+          ? (
+            code === 0
+              ? "idle"
+              : "error"
+          )
+          : "error";
 
       setDevServerState({
-        status: exitStatus,
+        status,
         port: null,
         url: null,
-        error: errorMsg,
-        commandUsed: commandDescription,
+        error: errorMessage,
+        commandUsed:
+          commandDescription,
       });
 
       options.onOutput?.(
         wasRunning
-          ? `ℹ Server process exited with code ${code}\n`
-          : `❌ Server exited before becoming ready (code ${code}). See process output above.\n`
+          ? `ℹ Server exited with code ${code}\n`
+          : `❌ Server exited before becoming ready (code ${code})\n`
       );
 
       if (!wasRunning) {
-        rejectServerReady(new Error(errorMsg || `Server process exited with code ${code}`));
+        rejectServerReady(
+          new Error(
+            errorMessage ||
+            `Server exited with code ${code}`
+          )
+        );
       }
     });
 
     return await readyPromise;
   })();
 
-  globalThis.__nudgeDevServerStartPromise = startPromise;
+  globalThis.__nudgeDevServerStartPromise =
+    startPromise;
 
   try {
     return await startPromise;
+  } catch (error) {
+    if (
+      !(error instanceof DevServerStartCancelledError) &&
+      getDevServerGeneration() === generation &&
+      getDevServerState().status ===
+      "starting"
+    ) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : String(error);
+
+      setDevServerState({
+        ...getDevServerState(),
+        status: "error",
+        port: null,
+        url: null,
+        error: message,
+      });
+    }
+
+    throw error;
   } finally {
-    globalThis.__nudgeDevServerStartPromise = undefined;
+    if (
+      globalThis.__nudgeDevServerStartPromise ===
+      startPromise
+    ) {
+      globalThis.__nudgeDevServerStartPromise =
+        undefined;
+    }
   }
 }
 
+/* ============================================================
+   URL NORMALIZATION
+   ============================================================ */
+
 /**
- * Restarts the project's dev server by gracefully terminating the running process,
- * releasing all ports, and starting a fresh server instance.
+ * WebContainer's server-ready URL is the source of truth.
+ *
+ * We normalize it to the server root so the preview UI never
+ * accidentally turns it into /health, /api/health, etc.
  */
+function normalizePreviewUrl(
+  url: string
+): string {
+  try {
+    const parsed = new URL(url);
+
+    parsed.pathname = "/";
+    parsed.search = "";
+    parsed.hash = "";
+
+    return parsed.toString();
+  } catch {
+    return url.endsWith("/")
+      ? url
+      : `${url}/`;
+  }
+}
+
+/* ============================================================
+   RESTART
+   ============================================================ */
+
 export async function restartDevServer(
   options: DevServerOptions = {}
 ): Promise<DevServerState> {
   await stopDevServer();
+
   return await startDevServer(options);
 }
 
-/**
- * Attaches a listener for the WebContainer 'server-ready' event.
- * Returns an unsubscription function.
- */
+/* ============================================================
+   SERVER READY LISTENER
+   ============================================================ */
+
 export async function onServerReady(
-  callback: (port: number, url: string) => void
+  callback: (
+    port: number,
+    url: string
+  ) => void
 ): Promise<() => void> {
-  const webcontainer = await getWebContainer();
-  return webcontainer.on("server-ready", callback);
+  const webcontainer =
+    await getWebContainer();
+
+  return webcontainer.on(
+    "server-ready",
+    (port, url) => {
+      /*
+       * Always provide the root preview URL.
+       */
+      callback(
+        port,
+        normalizePreviewUrl(url)
+      );
+    }
+  );
 }
+
+/* ============================================================
+   DIRECTORY OPERATIONS
+   ============================================================ */
 
 export interface DirEntry {
   name: string;
   isDirectory: boolean;
 }
 
-/**
- * Lists the contents of a directory in the WebContainer filesystem.
- * Returns an array of entries with name and type (file vs directory).
- */
-export async function listDirectory(dirPath: string): Promise<DirEntry[]> {
-  const webcontainer = await getWebContainer();
-  const cleanPath = dirPath.replace(/^\/+/, "") || ".";
-  const entries = await webcontainer.fs.readdir(cleanPath, {
-    withFileTypes: true,
-  });
+export async function listDirectory(
+  dirPath: string
+): Promise<DirEntry[]> {
+  const webcontainer =
+    await getWebContainer();
+
+  const cleanPath =
+    dirPath.replace(/^\/+/, "") || ".";
+
+  const entries =
+    await webcontainer.fs.readdir(
+      cleanPath,
+      {
+        withFileTypes: true,
+      }
+    );
+
   return entries.map((entry) => ({
-    name: typeof entry === "string" ? entry : entry.name,
-    isDirectory: typeof entry === "string" ? false : entry.isDirectory(),
+    name:
+      typeof entry === "string"
+        ? entry
+        : entry.name,
+
+    isDirectory:
+      typeof entry === "string"
+        ? false
+        : entry.isDirectory(),
   }));
 }
 
-/**
- * Creates a directory in the WebContainer filesystem.
- * Automatically creates parent directories if they don't exist.
- */
-export async function createDirectory(dirPath: string): Promise<void> {
-  const webcontainer = await getWebContainer();
-  const cleanPath = dirPath.replace(/^\/+/, "");
-  await webcontainer.fs.mkdir(cleanPath, { recursive: true });
+export async function createDirectory(
+  dirPath: string
+): Promise<void> {
+  const webcontainer =
+    await getWebContainer();
+
+  const cleanPath =
+    dirPath.replace(/^\/+/, "");
+
+  await webcontainer.fs.mkdir(
+    cleanPath,
+    {
+      recursive: true,
+    }
+  );
 }
 
-/**
- * Deletes a file or directory from the WebContainer filesystem.
- */
-export async function deleteEntry(entryPath: string): Promise<void> {
-  const webcontainer = await getWebContainer();
-  const cleanPath = entryPath.replace(/^\/+/, "");
-  if (!cleanPath || cleanPath === ".") return;
-  await webcontainer.fs.rm(cleanPath, { recursive: true, force: true });
+export async function deleteEntry(
+  entryPath: string
+): Promise<void> {
+  const webcontainer =
+    await getWebContainer();
+
+  const cleanPath =
+    entryPath.replace(/^\/+/, "");
+
+  if (
+    !cleanPath ||
+    cleanPath === "."
+  ) {
+    return;
+  }
+
+  await webcontainer.fs.rm(
+    cleanPath,
+    {
+      recursive: true,
+      force: true,
+    }
+  );
 }
 
-/**
- * Renames or moves a file or directory in the WebContainer filesystem.
- */
 export async function renameEntry(
   oldPath: string,
   newPath: string
 ): Promise<void> {
-  const webcontainer = await getWebContainer();
-  const cleanOld = oldPath.replace(/^\/+/, "");
-  const cleanNew = newPath.replace(/^\/+/, "");
+  const webcontainer =
+    await getWebContainer();
 
-  if (!cleanOld || !cleanNew || cleanOld === cleanNew) return;
+  const cleanOld =
+    oldPath.replace(/^\/+/, "");
 
-  const lastSlashIndex = cleanNew.lastIndexOf("/");
-  if (lastSlashIndex !== -1) {
-    const parentDir = cleanNew.slice(0, lastSlashIndex);
-    await webcontainer.fs.mkdir(parentDir, { recursive: true });
+  const cleanNew =
+    newPath.replace(/^\/+/, "");
+
+  if (
+    !cleanOld ||
+    !cleanNew ||
+    cleanOld === cleanNew
+  ) {
+    return;
   }
 
-  if (typeof (webcontainer.fs as any).rename === "function") {
-    await (webcontainer.fs as any).rename(cleanOld, cleanNew);
+  const lastSlashIndex =
+    cleanNew.lastIndexOf("/");
+
+  if (lastSlashIndex !== -1) {
+    const parentDirectory =
+      cleanNew.slice(
+        0,
+        lastSlashIndex
+      );
+
+    await webcontainer.fs.mkdir(
+      parentDirectory,
+      {
+        recursive: true,
+      }
+    );
+  }
+
+  if (
+    typeof (webcontainer.fs as any)
+      .rename === "function"
+  ) {
+    await (
+      webcontainer.fs as any
+    ).rename(
+      cleanOld,
+      cleanNew
+    );
   } else {
-    const content = await webcontainer.fs.readFile(cleanOld, "utf-8");
-    await webcontainer.fs.writeFile(cleanNew, content);
-    await webcontainer.fs.rm(cleanOld, { recursive: true, force: true });
+    const content =
+      await webcontainer.fs.readFile(
+        cleanOld,
+        "utf-8"
+      );
+
+    await webcontainer.fs.writeFile(
+      cleanNew,
+      content
+    );
+
+    await webcontainer.fs.rm(
+      cleanOld,
+      {
+        recursive: true,
+        force: true,
+      }
+    );
   }
 }

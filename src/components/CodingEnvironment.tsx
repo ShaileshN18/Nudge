@@ -135,9 +135,7 @@ export default function CodingEnvironment({
   const previewUrl = devServerState.url;
   const serverPort = devServerState.port;
   const serverError = devServerState.error;
-  const [previewPath, setPreviewPath] = useState("/");
   const [panelExpanded, setPanelExpanded] = useState(false);
-  const [iframeReloadKey, setIframeReloadKey] = useState(0);
   const terminalPanelRef = useRef<PanelImperativeHandle | null>(null);
   const previewChannelRef = useRef<BroadcastChannel | null>(null);
 
@@ -284,7 +282,7 @@ export default function CodingEnvironment({
             setCompletedTasks(userWorkspace.completedTasks);
             const currentTaskOrder = String(
               baseProject?.tasks?.[userWorkspace.currentTaskIndex || 0]?.order ||
-                (userWorkspace.currentTaskIndex || 0) + 1
+              (userWorkspace.currentTaskIndex || 0) + 1
             );
             if (userWorkspace.completedTasks.includes(currentTaskOrder)) {
               setTaskCompleted(true);
@@ -333,6 +331,7 @@ export default function CodingEnvironment({
 
         try {
           await mountProject(files);
+          if (!isSubscribed) return;
           setTreeRefreshKey((k) => k + 1);
 
           // Auto-start dev server on mount if not already running or starting
@@ -343,7 +342,7 @@ export default function CodingEnvironment({
                 const lines = chunk.split("\n").filter((l) => l.length > 0);
                 setTerminalLogs((prev) => [...prev, ...lines]);
               },
-            }).catch(() => {});
+            }).catch(() => { });
           }
         } catch (mErr) {
           console.warn("WebContainer mount warning:", mErr);
@@ -599,6 +598,20 @@ export default function CodingEnvironment({
         saveTimeoutRef.current = setTimeout(async () => {
           try {
             await writeProjectFile(activeFilePath, content);
+
+            // Node caches CommonJS modules, so changes to a learner's backend
+            // need a real server restart before the preview can use them.
+            if (
+              activeFilePath.replace(/^\/+/, "").startsWith("backend/") &&
+              getDevServerState().status === "running"
+            ) {
+              await restartDevServer({
+                onOutput: (chunk) => {
+                  const lines = chunk.split("\n").filter((line) => line.length > 0);
+                  setTerminalLogs((previous) => [...previous, ...lines]);
+                },
+              });
+            }
           } catch (err) {
             console.warn("Auto-save warning:", err);
           }
@@ -681,7 +694,7 @@ export default function CodingEnvironment({
 
       try {
         if (activeFilePath && activeFileContent) {
-          await writeProjectFile(activeFilePath, activeFileContent).catch(() => {});
+          await writeProjectFile(activeFilePath, activeFileContent).catch(() => { });
         }
         await startDevServer({
           onOutput: (chunk) => {
@@ -701,7 +714,7 @@ export default function CodingEnvironment({
   const handleRestartServer = useCallback(async () => {
     try {
       if (activeFilePath && activeFileContent) {
-        await writeProjectFile(activeFilePath, activeFileContent).catch(() => {});
+        await writeProjectFile(activeFilePath, activeFileContent).catch(() => { });
       }
       await restartDevServer({
         onOutput: (chunk) => {
@@ -830,20 +843,18 @@ export default function CodingEnvironment({
     // 2. If active file is HTML (e.g. index.html or any custom HTML file)
     if (isHtmlActive) {
       setActiveBottomTab("preview");
-      const targetPath = activeFilePath === "index.html" ? "/" : `/${activeFilePath}`;
-      setPreviewPath(targetPath);
 
       if (isServerRunning && previewUrl) {
-        setIframeReloadKey((k) => k + 1);
         setTerminalLogs((prev) => [
           ...prev,
           "",
           `➜ Previewing: ${activeFilePath}`,
-          `✔ Live Preview refreshed for ${activeFilePath}`,
+          "✔ Live Preview refreshed.",
         ]);
       } else {
-        await handleStartServer({ openTab: false });
+        await handleStartServer();
       }
+
       return;
     }
 
@@ -866,7 +877,7 @@ export default function CodingEnvironment({
       try {
         const entries = await container.fs.readdir(".", { withFileTypes: true });
         rootEntries = entries.map((e: any) => (typeof e === "string" ? e : e.name));
-      } catch {}
+      } catch { }
 
       // Check package.json for test script
       if (rootEntries.includes("package.json")) {
@@ -877,7 +888,7 @@ export default function CodingEnvironment({
             await handleRunCode("npm", ["test"]);
             return;
           }
-        } catch {}
+        } catch { }
       }
 
       // Check for backend/test.js
@@ -885,14 +896,14 @@ export default function CodingEnvironment({
         await container.fs.readFile("backend/test.js", "utf-8");
         await handleRunCode("node", ["backend/test.js"]);
         return;
-      } catch {}
+      } catch { }
 
       // Check for test.js
       if (rootEntries.includes("test.js")) {
         await handleRunCode("node", ["test.js"]);
         return;
       }
-    } catch {}
+    } catch { }
 
     // 6. Fallback: if active file is JS / TS
     if (isJsActive || isTsActive) {
@@ -1059,8 +1070,7 @@ export default function CodingEnvironment({
       console.error("Evaluation execution error:", err);
       setTerminalLogs((prev) => [
         ...prev,
-        `❌ [AI Evaluation Error]: ${
-          err?.message || "Failed to evaluate code. Ensure GEMINI_API_KEY is configured in .env."
+        `❌ [AI Evaluation Error]: ${err?.message || "Failed to evaluate code. Ensure GEMINI_API_KEY is configured in .env."
         }`,
       ]);
     } finally {
@@ -1287,8 +1297,6 @@ export default function CodingEnvironment({
                     isServerRunning={isServerRunning}
                     startingServer={startingServer}
                     onStartServer={handleStartServer}
-                    previewPath={previewPath}
-                    onChangePreviewPath={setPreviewPath}
                     serverError={serverError}
                     isCompact={false}
                   />
@@ -1339,8 +1347,6 @@ export default function CodingEnvironment({
                             isServerRunning={isServerRunning}
                             startingServer={startingServer}
                             onStartServer={handleStartServer}
-                            previewPath={previewPath}
-                            onChangePreviewPath={setPreviewPath}
                             serverError={serverError}
                             isCompact={false}
                           />
@@ -1381,11 +1387,10 @@ export default function CodingEnvironment({
                       <div className="flex items-center gap-4 text-xs font-medium">
                         <button
                           onClick={() => setActiveBottomTab("terminal")}
-                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
-                            activeBottomTab === "terminal"
-                              ? "border-[#82CDBD] text-[#F4F7F6] font-semibold"
-                              : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
-                          }`}
+                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${activeBottomTab === "terminal"
+                            ? "border-[#82CDBD] text-[#F4F7F6] font-semibold"
+                            : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
+                            }`}
                         >
                           <Terminal className="h-3.5 w-3.5 text-[#67D6B2]" />
                           <span>Terminal</span>
@@ -1393,11 +1398,10 @@ export default function CodingEnvironment({
 
                         <button
                           onClick={() => setActiveBottomTab("problems")}
-                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
-                            activeBottomTab === "problems"
-                              ? "border-[#82CDBD] text-[#F4F7F6] font-semibold"
-                              : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
-                          }`}
+                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${activeBottomTab === "problems"
+                            ? "border-[#82CDBD] text-[#F4F7F6] font-semibold"
+                            : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
+                            }`}
                         >
                           <AlertCircle className="h-3.5 w-3.5 text-[#71807C]" />
                           <span>Problems 0</span>
@@ -1405,11 +1409,10 @@ export default function CodingEnvironment({
 
                         <button
                           onClick={() => setActiveBottomTab("evaluation")}
-                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
-                            activeBottomTab === "evaluation"
-                              ? "border-[#F06A6A] text-[#F4F7F6] font-semibold"
-                              : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
-                          }`}
+                          className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${activeBottomTab === "evaluation"
+                            ? "border-[#F06A6A] text-[#F4F7F6] font-semibold"
+                            : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
+                            }`}
                         >
                           <XCircle className="h-3.5 w-3.5 text-[#F06A6A]" />
                           <span>Evaluation Results</span>
@@ -1418,11 +1421,10 @@ export default function CodingEnvironment({
                         {previewUrl && (
                           <button
                             onClick={() => setActiveBottomTab("preview")}
-                            className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${
-                              activeBottomTab === "preview"
-                                ? "border-[#82CDBD] text-[#F4F7F6] font-semibold"
-                                : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
-                            }`}
+                            className={`flex items-center gap-1.5 py-1 transition-colors border-b-2 cursor-pointer ${activeBottomTab === "preview"
+                              ? "border-[#82CDBD] text-[#F4F7F6] font-semibold"
+                              : "border-transparent text-[#71807C] hover:text-[#A9B5B2]"
+                              }`}
                           >
                             <Globe className="h-3.5 w-3.5 text-[#6BCDB4]" />
                             <span>Preview</span>
@@ -1505,19 +1507,18 @@ export default function CodingEnvironment({
                             {terminalLogs.map((log, i) => (
                               <div
                                 key={i}
-                                className={`${
-                                  log.includes("✔") || log.includes("[PASS]")
-                                    ? "text-[#67D6B2] font-semibold"
-                                    : log.includes("❌") || log.includes("[FAIL]")
+                                className={`${log.includes("✔") || log.includes("[PASS]")
+                                  ? "text-[#67D6B2] font-semibold"
+                                  : log.includes("❌") || log.includes("[FAIL]")
                                     ? "text-[#F06A6A] font-semibold"
                                     : log.includes("🎉")
-                                    ? "text-[#E9C46A] font-bold"
-                                    : log.includes("http")
-                                    ? "text-[#82CDBD]"
-                                    : log.startsWith("➜")
-                                    ? "text-[#6BCDB4] font-bold"
-                                    : "text-[#A9B5B2]"
-                                }`}
+                                      ? "text-[#E9C46A] font-bold"
+                                      : log.includes("http")
+                                        ? "text-[#82CDBD]"
+                                        : log.startsWith("➜")
+                                          ? "text-[#6BCDB4] font-bold"
+                                          : "text-[#A9B5B2]"
+                                  }`}
                               >
                                 {log}
                               </div>
@@ -1604,10 +1605,8 @@ export default function CodingEnvironment({
                           isServerRunning={isServerRunning}
                           startingServer={startingServer}
                           onStartServer={handleStartServer}
-                          previewPath={previewPath}
-                          onChangePreviewPath={setPreviewPath}
                           serverError={serverError}
-                          isCompact={true}
+                          isCompact={false}
                         />
                       )}
                     </div>
@@ -1683,11 +1682,10 @@ export default function CodingEnvironment({
                     return (
                       <div
                         key={idx}
-                        className={`p-2 rounded-lg border text-xs flex items-start gap-2 ${
-                          isPassed
-                            ? "bg-emerald-950/20 border-emerald-500/30 text-emerald-300"
-                            : "bg-slate-900/50 border-slate-800 text-slate-300"
-                        }`}
+                        className={`p-2 rounded-lg border text-xs flex items-start gap-2 ${isPassed
+                          ? "bg-emerald-950/20 border-emerald-500/30 text-emerald-300"
+                          : "bg-slate-900/50 border-slate-800 text-slate-300"
+                          }`}
                       >
                         {isPassed ? (
                           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 mt-0.5 shrink-0" />

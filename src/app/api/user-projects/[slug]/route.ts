@@ -103,6 +103,29 @@ export async function GET(
       await userProject.save().catch(() => null);
     }
 
+    // Migrate the previously shipped Feedback model that accidentally included
+    // a GET handler at module scope. Its top-level await makes CommonJS require()
+    // fail before the learner's server can become ready.
+    if (normalizedSlug === "feedback-board") {
+      let migrated = false;
+      const correctedFiles = (userProject.files || []).map((file: any) => {
+        if (file.path !== "backend/src/models/Feedback.js") return file;
+
+        const content = String(file.content || "").replace(
+          /\nconst feedback = await Feedback\.find\(\)\.sort\(\{ votes: -1 \}\);\s*\n\s*res\.status\(200\)\.json\(feedback\);\s*/,
+          "\n"
+        );
+        if (content === file.content) return file;
+        migrated = true;
+        return { ...file.toObject?.(), content };
+      });
+
+      if (migrated) {
+        userProject.files = correctedFiles;
+        await userProject.save();
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: {
