@@ -3,7 +3,8 @@
 import React, { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Code2, ArrowRight, Loader2, AlertCircle } from "lucide-react";
+import { ArrowRight, Loader2, AlertCircle, Sparkles, User, Mail, Lock } from "lucide-react";
+import NudgeLogo from "@/components/NudgeLogo";
 
 function SignupForm() {
   const router = useRouter();
@@ -44,87 +45,102 @@ function SignupForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#090d16] text-slate-100 p-6">
-      <div className="max-w-md w-full glass-card p-8 rounded-2xl space-y-6">
+    <div className="min-h-screen flex items-center justify-center bg-[#080C0D] text-[#F4F7F6] p-6 relative overflow-hidden bg-developer-grid">
+      {/* Glow */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#67D6B2]/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="max-w-md w-full rounded-3xl bg-[#0D1214] border border-[#202A2C] p-8 space-y-6 shadow-2xl relative z-10">
         <div className="text-center space-y-2">
-          <div className="inline-flex h-12 w-12 rounded-xl bg-gradient-to-tr from-indigo-500 to-blue-500 items-center justify-center shadow-lg shadow-indigo-500/20 mb-2">
-            <Code2 className="h-6 w-6 text-white" />
+          <div className="flex justify-center mb-2">
+            <NudgeLogo size="md" />
           </div>
-          <h1 className="text-2xl font-bold text-white">Create Your Account</h1>
-          <p className="text-xs text-slate-400">Join Nudge to build fullstack projects step-by-step.</p>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Create Your Account</h1>
+          <p className="text-xs text-[#A9B5B2]">
+            Join Nudge to learn production engineering step-by-step.
+          </p>
         </div>
 
         {error && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
-            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <div className="flex items-center gap-2 p-3.5 rounded-xl bg-[#F06A6A]/10 border border-[#F06A6A]/20 text-[#F06A6A] text-xs">
+            <AlertCircle className="h-4 w-4 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs font-medium text-[#A9B5B2] mb-1.5">
               Full Name
             </label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Jane Doe"
-              className="w-full px-3.5 py-2.5 rounded-lg bg-slate-900/80 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Jane Doe"
+                className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-[#11181A] border border-[#202A2C] text-sm text-white placeholder-[#4B5754] focus:outline-none focus:border-[#67D6B2] focus:ring-1 focus:ring-[#67D6B2] transition-colors"
+              />
+              <User className="w-4 h-4 text-[#71807C] absolute left-3.5 top-1/2 -translate-y-1/2" />
+            </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs font-medium text-[#A9B5B2] mb-1.5">
               Email Address
             </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              className="w-full px-3.5 py-2.5 rounded-lg bg-slate-900/80 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
-            />
+            <div className="relative">
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-[#11181A] border border-[#202A2C] text-sm text-white placeholder-[#4B5754] focus:outline-none focus:border-[#67D6B2] focus:ring-1 focus:ring-[#67D6B2] transition-colors"
+              />
+              <Mail className="w-4 h-4 text-[#71807C] absolute left-3.5 top-1/2 -translate-y-1/2" />
+            </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs font-medium text-[#A9B5B2] mb-1.5">
               Password (min. 6 characters)
             </label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-3.5 py-2.5 rounded-lg bg-slate-900/80 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
-            />
+            <div className="relative">
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-[#11181A] border border-[#202A2C] text-sm text-white placeholder-[#4B5754] focus:outline-none focus:border-[#67D6B2] focus:ring-1 focus:ring-[#67D6B2] transition-colors"
+              />
+              <Lock className="w-4 h-4 text-[#71807C] absolute left-3.5 top-1/2 -translate-y-1/2" />
+            </div>
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold flex items-center justify-center gap-2 transition-all shadow-md shadow-indigo-600/25"
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-[#67D6B2] to-[#10B981] hover:opacity-90 disabled:opacity-50 text-[#080C0D] text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-[#67D6B2]/20 cursor-pointer"
           >
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <>
-                Sign Up <ArrowRight className="h-4 w-4" />
+                <span>Create Account</span>
+                <ArrowRight className="h-4 w-4" />
               </>
             )}
           </button>
         </form>
 
-        <div className="text-center text-xs text-slate-400">
+        <div className="text-center text-xs text-[#71807C] pt-2 border-t border-[#202A2C]">
           Already have an account?{" "}
           <Link
             href={`/login?redirect=${encodeURIComponent(redirectPath)}`}
-            className="text-indigo-400 font-medium hover:underline"
+            className="text-[#67D6B2] font-semibold hover:underline"
           >
             Log in
           </Link>
@@ -136,7 +152,7 @@ function SignupForm() {
 
 export default function SignupPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-[#090d16]" />}>
+    <Suspense fallback={<div className="min-h-screen bg-[#080C0D]" />}>
       <SignupForm />
     </Suspense>
   );
