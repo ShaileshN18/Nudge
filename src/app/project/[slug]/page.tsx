@@ -3,8 +3,7 @@
 import React, { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import CodingEnvironment from "@/components/CodingEnvironment";
-import { authSeedProject, feedbackBoardSeedProject } from "@/lib/seedProject";
-import { RefreshCw, Lock } from "lucide-react";
+import { RotateCw, Lock } from "lucide-react";
 
 export default function ProjectWorkspaceSlugPage({
   params,
@@ -17,7 +16,6 @@ export default function ProjectWorkspaceSlugPage({
 
   const [authChecking, setAuthChecking] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState<{ id: string; name: string; email: string } | null>(null);
 
   useEffect(() => {
     let isSubscribed = true;
@@ -30,7 +28,6 @@ export default function ProjectWorkspaceSlugPage({
         if (isSubscribed) {
           if (res.ok && data.success && data.user) {
             setIsAuthenticated(true);
-            setUser(data.user);
             setAuthChecking(false);
           } else {
             setIsAuthenticated(false);
@@ -38,7 +35,7 @@ export default function ProjectWorkspaceSlugPage({
             router.replace(`/login?redirect=/project/${encodeURIComponent(slug)}`);
           }
         }
-      } catch (err) {
+      } catch {
         if (isSubscribed) {
           setIsAuthenticated(false);
           setAuthChecking(false);
@@ -56,48 +53,28 @@ export default function ProjectWorkspaceSlugPage({
 
   if (authChecking) {
     return (
-      <div className="h-screen w-screen bg-[#07090f] flex flex-col items-center justify-center space-y-4 text-white">
-        <RefreshCw className="h-8 w-8 text-indigo-400 animate-spin" />
-        <p className="text-slate-400 text-sm font-medium">Verifying authorization...</p>
+      <div className="h-screen w-screen bg-[#080C0D] flex flex-col items-center justify-center space-y-4 text-white">
+        <RotateCw className="h-8 w-8 text-[#67D6B2] animate-spin" />
+        <p className="text-[#A9B5B2] text-xs font-medium">
+          Loading workspace & checking authorization...
+        </p>
       </div>
     );
   }
 
   if (!isAuthenticated) {
     return (
-      <div className="h-screen w-screen bg-[#07090f] flex flex-col items-center justify-center space-y-4 text-white">
-        <div className="h-12 w-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-          <Lock className="h-6 w-6 text-amber-400" />
+      <div className="h-screen w-screen bg-[#080C0D] flex flex-col items-center justify-center space-y-4 text-white">
+        <div className="h-12 w-12 rounded-2xl bg-[#E9C46A]/10 border border-[#E9C46A]/20 flex items-center justify-center">
+          <Lock className="h-6 w-6 text-[#E9C46A]" />
         </div>
-        <p className="text-slate-300 text-sm font-semibold">Authentication required to access projects</p>
-        <p className="text-slate-500 text-xs">Redirecting to login...</p>
+        <p className="text-white text-sm font-semibold">
+          Authentication required to access workspace
+        </p>
+        <p className="text-[#71807C] text-xs">Redirecting to login...</p>
       </div>
     );
   }
 
-  const isFeedbackSlug =
-    slug === "feedback-board" ||
-    slug === "feedback_board" ||
-    slug === "build-feedback-board";
-
-  const isAuthSlug =
-    slug === "build-auth" ||
-    slug === "build_auth" ||
-    slug === "build-express-mongodb-auth" ||
-    slug === "default";
-
-  let initialProject = undefined;
-  if (isFeedbackSlug) {
-    initialProject = feedbackBoardSeedProject as any;
-  } else if (isAuthSlug) {
-    initialProject = authSeedProject as any;
-  }
-
-  return (
-    <CodingEnvironment
-      projectIdOrSlug={slug}
-      initialProject={initialProject}
-      user={user}
-    />
-  );
+  return <CodingEnvironment projectSlug={slug} />;
 }

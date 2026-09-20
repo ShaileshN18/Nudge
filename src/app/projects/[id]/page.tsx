@@ -1,7 +1,7 @@
 "use client";
 
 import React, { use } from "react";
-import CodingEnvironment from "@/components/CodingEnvironment";
+import ProjectWorkspaceSlugPage from "@/app/project/[slug]/page";
 
 export default function ProjectWorkspaceIdPage({
   params,
@@ -11,5 +11,9 @@ export default function ProjectWorkspaceIdPage({
   const resolvedParams = use(params);
   const projectId = resolvedParams.id;
 
-  return <CodingEnvironment projectIdOrSlug={projectId} />;
+  return (
+    <ProjectWorkspaceSlugPage
+      params={Promise.resolve({ slug: projectId })}
+    />
+  );
 }
