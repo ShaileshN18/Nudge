@@ -11,7 +11,6 @@ export interface IUserProject extends Document {
   projectSlug: string;
   files: IUserProjectFile[];
   currentTaskIndex: number;
-  currentTaskId?: string;
   completedTasks: string[];
   activeFilePath?: string;
   lastActiveAt: Date;
@@ -25,6 +24,7 @@ const UserProjectSchema = new Schema<IUserProject>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
     projectId: {
       type: Schema.Types.ObjectId,
@@ -45,10 +45,6 @@ const UserProjectSchema = new Schema<IUserProject>(
     currentTaskIndex: {
       type: Number,
       default: 0,
-    },
-    currentTaskId: {
-      type: String,
-      required: false,
     },
     completedTasks: [
       {
