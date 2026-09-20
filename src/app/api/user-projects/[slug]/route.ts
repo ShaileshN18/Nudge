@@ -19,6 +19,11 @@ function getBaseSeed(slug: string) {
   return isFeedbackSlug ? feedbackBoardSeedProject : authSeedProject;
 }
 
+/**
+ * GET /api/user-projects/[slug]
+ * Returns user workspace files, progress, and ONLY the currently active task.
+ * Future task instructions, criteria, and titles are never exposed to the client.
+ */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ slug: string }> }
@@ -45,12 +50,12 @@ export async function GET(
 
     await connectToDatabase();
 
-    // 1. Fetch base project
+    // 1. Fetch or initialize base curriculum project
     let baseProject = await Project.findOne({
       $or: [{ slug }, { slug: normalizedSlug }],
     });
 
-    if (!baseProject) {
+    if (!baseProject || !baseProject.tasks || baseProject.tasks.length === 0) {
       baseProject = await Project.create({
         slug: fallbackSeed.slug,
         title: fallbackSeed.title,
@@ -60,26 +65,14 @@ export async function GET(
         tasks: fallbackSeed.tasks,
         files: fallbackSeed.files,
       }).catch(() => fallbackSeed);
-    } else if (baseProject && fallbackSeed.files) {
-      // Sync base project files if starter templates were updated
-      const baseUserModel = baseProject.files?.find((f: any) => f.path.includes("models/User.js"));
-      const seedModelFile = fallbackSeed.files.find((f: any) => f.path.includes("models/User.js"));
-      if (baseUserModel && seedModelFile && !baseUserModel.content.includes("TODO")) {
-        await Project.updateOne(
-          { _id: baseProject._id },
-          { $set: { files: fallbackSeed.files, tasks: fallbackSeed.tasks } }
-        ).catch(() => null);
-        baseProject.files = fallbackSeed.files;
-      }
     }
 
-    // 2. Look for existing UserProject workspace
+    // 2. Fetch or initialize user's own project workspace
     let userProject = await UserProject.findOne({
       userId: session.userId,
       $or: [{ projectSlug: slug }, { projectSlug: normalizedSlug }],
     });
 
-    // 3. First time opening: clone project files into user's own workspace
     if (!userProject) {
       const initialFiles = (baseProject.files || fallbackSeed.files || []).map(
         (f: any) => ({
@@ -103,42 +96,47 @@ export async function GET(
       await userProject.save().catch(() => null);
     }
 
-    // Migrate the previously shipped Feedback model that accidentally included
-    // a GET handler at module scope. Its top-level await makes CommonJS require()
-    // fail before the learner's server can become ready.
-    if (normalizedSlug === "feedback-board") {
-      let migrated = false;
-      const correctedFiles = (userProject.files || []).map((file: any) => {
-        if (file.path !== "backend/src/models/Feedback.js") return file;
+    const totalTasks = baseProject.tasks?.length || fallbackSeed.tasks.length;
+    const taskIndex = userProject.currentTaskIndex || 0;
+    const isCompleted = taskIndex >= totalTasks;
 
-        const content = String(file.content || "").replace(
-          /\nconst feedback = await Feedback\.find\(\)\.sort\(\{ votes: -1 \}\);\s*\n\s*res\.status\(200\)\.json\(feedback\);\s*/,
-          "\n"
-        );
-        if (content === file.content) return file;
-        migrated = true;
-        return { ...file.toObject?.(), content };
-      });
-
-      if (migrated) {
-        userProject.files = correctedFiles;
-        await userProject.save();
-      }
+    // Strict Task Isolation: Only expose the current active task!
+    let currentTask = null;
+    if (!isCompleted && baseProject.tasks && baseProject.tasks[taskIndex]) {
+      const rawTask = baseProject.tasks[taskIndex];
+      currentTask = {
+        _id: String(rawTask._id || taskIndex + 1),
+        order: rawTask.order || taskIndex + 1,
+        title: rawTask.title,
+        description: rawTask.description,
+        instructions: rawTask.instructions || "",
+        goal: rawTask.goal,
+        targetFiles: rawTask.targetFiles || [],
+        evaluationCriteria: rawTask.evaluationCriteria || [],
+        concepts: rawTask.concepts || [],
+        difficulty: rawTask.difficulty || "intermediate",
+      };
     }
 
     return NextResponse.json({
       success: true,
       data: {
-        project: baseProject,
-        userProject: {
-          _id: userProject._id,
-          projectSlug: userProject.projectSlug,
-          files: userProject.files,
-          currentTaskIndex: userProject.currentTaskIndex || 0,
-          completedTasks: userProject.completedTasks || [],
-          activeFilePath: userProject.activeFilePath || "",
-          updatedAt: userProject.updatedAt,
+        project: {
+          slug: baseProject.slug,
+          title: baseProject.title,
+          description: baseProject.description,
+          track: baseProject.track,
+          difficulty: baseProject.difficulty,
+          totalTasks,
         },
+        currentTask,
+        currentTaskIndex: taskIndex,
+        totalTasks,
+        isCompleted,
+        completedTasks: userProject.completedTasks || [],
+        files: userProject.files || [],
+        activeFilePath: userProject.activeFilePath || userProject.files?.[0]?.path || "",
+        updatedAt: userProject.updatedAt,
       },
     });
   } catch (error: any) {
@@ -150,6 +148,11 @@ export async function GET(
   }
 }
 
+/**
+ * PATCH /api/user-projects/[slug]
+ * Persists learner's files, active tab, or creates/deletes files.
+ * Security Note: Task progression cannot be manipulated here.
+ */
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ slug: string }> }
@@ -177,26 +180,11 @@ export async function PATCH(
     await connectToDatabase();
 
     const body = await request.json();
-    const {
-      file,
-      files,
-      deleteFilePath,
-      isDirectory,
-      renameFile,
-      currentTaskIndex,
-      completedTasks,
-      activeFilePath,
-    } = body;
+    const { file, files, deleteFilePath, isDirectory, renameFile, activeFilePath, reset } = body;
 
     let baseProject = await Project.findOne({
       $or: [{ slug }, { slug: normalizedSlug }],
     });
-
-    const coreFilePaths = new Set<string>(
-      (baseProject?.files || fallbackSeed.files || []).map((f: any) =>
-        String(f.path).replace(/^\/+/, "")
-      )
-    );
 
     let userProject = await UserProject.findOne({
       userId: session.userId,
@@ -223,43 +211,27 @@ export async function PATCH(
       });
     }
 
-    if (body.reset === true) {
+    // Reset workspace to initial template
+    if (reset === true) {
       const initialFiles = (fallbackSeed.files || []).map((f: any) => ({
         path: f.path,
         content: f.content,
       }));
       userProject.files = initialFiles;
-      userProject.completedTasks = [];
-      userProject.currentTaskIndex = 0;
       userProject.activeFilePath = initialFiles[0]?.path || "";
       await userProject.save();
       return NextResponse.json({
         success: true,
         data: {
           files: userProject.files,
-          completedTasks: userProject.completedTasks,
-          currentTaskIndex: userProject.currentTaskIndex,
+          activeFilePath: userProject.activeFilePath,
         },
       });
     }
 
-    // 1. Guardrail & handle deletion
+    // Handle file deletion
     if (typeof deleteFilePath === "string") {
       const cleanDelete = deleteFilePath.replace(/^\/+/, "");
-      // Check if trying to delete a core file or directory containing core files
-      const isTryingToDeleteCore = isDirectory
-        ? Array.from(coreFilePaths).some(
-            (cp) => cp === cleanDelete || cp.startsWith(`${cleanDelete}/`)
-          )
-        : coreFilePaths.has(cleanDelete);
-
-      if (isTryingToDeleteCore) {
-        return NextResponse.json(
-          { success: false, error: "Core project files and directories cannot be deleted." },
-          { status: 403 }
-        );
-      }
-
       if (isDirectory) {
         userProject.files = userProject.files.filter((f: any) => {
           const fp = f.path.replace(/^\/+/, "");
@@ -272,23 +244,14 @@ export async function PATCH(
       }
     }
 
-    // 2. Guardrail & handle renaming
-    if (renameFile && typeof renameFile.oldPath === "string" && typeof renameFile.newPath === "string") {
+    // Handle renaming
+    if (
+      renameFile &&
+      typeof renameFile.oldPath === "string" &&
+      typeof renameFile.newPath === "string"
+    ) {
       const cleanOld = renameFile.oldPath.replace(/^\/+/, "");
       const cleanNew = renameFile.newPath.replace(/^\/+/, "");
-
-      const isTryingToRenameCore = renameFile.isDirectory
-        ? Array.from(coreFilePaths).some(
-            (cp) => cp === cleanOld || cp.startsWith(`${cleanOld}/`)
-          )
-        : coreFilePaths.has(cleanOld);
-
-      if (isTryingToRenameCore) {
-        return NextResponse.json(
-          { success: false, error: "Core project files and directories cannot be renamed." },
-          { status: 403 }
-        );
-      }
 
       if (renameFile.isDirectory) {
         userProject.files.forEach((f: any) => {
@@ -309,7 +272,7 @@ export async function PATCH(
       }
     }
 
-    // 3. Update specific file or entire files array
+    // Handle single file update
     if (file && typeof file.path === "string") {
       const cleanPath = file.path.replace(/^\/+/, "");
       const existingIdx = userProject.files.findIndex(
@@ -326,19 +289,9 @@ export async function PATCH(
       }
     }
 
+    // Handle bulk files update
     if (Array.isArray(files)) {
       userProject.files = files;
-    }
-
-    if (typeof currentTaskIndex === "number") {
-      userProject.currentTaskIndex = currentTaskIndex;
-    }
-
-    if (Array.isArray(completedTasks)) {
-      // Merge unique completed tasks
-      const existing = new Set(userProject.completedTasks.map(String));
-      completedTasks.forEach((t) => existing.add(String(t)));
-      userProject.completedTasks = Array.from(existing);
     }
 
     if (typeof activeFilePath === "string") {
@@ -351,8 +304,7 @@ export async function PATCH(
     return NextResponse.json({
       success: true,
       data: {
-        currentTaskIndex: userProject.currentTaskIndex,
-        completedTasks: userProject.completedTasks,
+        files: userProject.files,
         activeFilePath: userProject.activeFilePath,
         updatedAt: userProject.updatedAt,
       },
