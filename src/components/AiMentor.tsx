@@ -3,801 +3,521 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
   Sparkles,
-  Send,
-  MoreVertical,
-  ChevronDown,
-  ChevronUp,
-  ChevronRight,
   Lightbulb,
-  XCircle,
   CheckCircle2,
-  Copy,
-  Check,
-  RefreshCw,
-  HelpCircle,
-  ArrowRight,
-  RotateCcw,
+  XCircle,
   MessageSquare,
-  Compass,
+  BookOpen,
+  Send,
+  ArrowRight,
+  HelpCircle,
   FileCode,
   Layers,
-  AlertTriangle,
+  RotateCw,
   Code2,
 } from "lucide-react";
-import type { MentorState } from "@/hooks/useMentor";
-
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: Date;
-}
+import {
+  EvaluationResult,
+  MentorChatMessage,
+  NudgeLevel,
+  NUDGE_LEVELS,
+  NudgeResponse,
+  TaskContext,
+} from "@/lib/ai/types";
+import EvaluationResultView from "./EvaluationResultView";
 
 interface AiMentorProps {
-  currentTask?: {
-    order: number;
-    title: string;
-    description: string;
-    goal?: string;
-    targetFiles: string[];
-    evaluationCriteria?: string[];
-  };
-  activeFilePath?: string;
-  state: MentorState;
-  onNudge: () => void;
-  onSend: (message: string) => void;
-  onClearHint?: () => void;
-  onClearMessages: () => void;
-  userName?: string;
-}
-
-// ── Code Block & Markdown Renderer ──────────────────────────────────────
-function MarkdownContent({ content }: { content: string }) {
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-
-  const copyCode = (code: string, idx: number) => {
-    navigator.clipboard.writeText(code);
-    setCopiedIndex(idx);
-    setTimeout(() => setCopiedIndex(null), 2000);
-  };
-
-  // Split by fenced code blocks
-  const parts = content.split(/(```[\s\S]*?```)/g);
-
-  return (
-    <div className="space-y-2 text-xs leading-relaxed text-[#F4F7F6]">
-      {parts.map((part, index) => {
-        if (part.startsWith("```") && part.endsWith("```")) {
-          const lines = part.slice(3, -3).trim().split("\n");
-          let lang = "code";
-          let codeText = part.slice(3, -3).trim();
-          if (lines[0] && !lines[0].includes(" ") && lines.length > 1) {
-            lang = lines[0].trim();
-            codeText = lines.slice(1).join("\n");
-          }
-
-          return (
-            <div
-              key={index}
-              className="my-2 rounded-lg overflow-hidden border border-[#202A2C] bg-[#080C0D] font-mono text-[11px]"
-            >
-              <div className="flex items-center justify-between px-3 py-1.5 bg-[#11181A] border-b border-[#202A2C] text-[#71807C] text-[10px]">
-                <span className="font-semibold uppercase tracking-wider text-[#A9B5B2]">
-                  {lang}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => copyCode(codeText, index)}
-                  className="flex items-center gap-1 text-[#A9B5B2] hover:text-[#67D6B2] transition-colors cursor-pointer"
-                  title="Copy code"
-                >
-                  {copiedIndex === index ? (
-                    <>
-                      <Check className="h-3 w-3 text-[#67D6B2]" />
-                      <span className="text-[#67D6B2]">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3 w-3" />
-                      <span>Copy</span>
-                    </>
-                  )}
-                </button>
-              </div>
-              <pre className="p-3 overflow-x-auto text-[#E0E7E5] scrollbar-thin">
-                <code>{codeText}</code>
-              </pre>
-            </div>
-          );
-        }
-
-        // Regular text parsing: paragraph lines, bullet points, inline code, bold
-        const lines = part.split("\n");
-        return (
-          <div key={index} className="space-y-1">
-            {lines.map((line, lIdx) => {
-              const trimmed = line.trim();
-              if (!trimmed) return <div key={lIdx} className="h-1" />;
-
-              // Check for unordered bullet list
-              if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-                return (
-                  <div key={lIdx} className="flex items-start gap-2 pl-2">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#67D6B2] shrink-0 mt-1.5" />
-                    <span className="flex-1">{renderInlineFormat(trimmed.slice(2))}</span>
-                  </div>
-                );
-              }
-
-              // Check for numbered list
-              const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
-              if (numMatch) {
-                return (
-                  <div key={lIdx} className="flex items-start gap-2 pl-2">
-                    <span className="text-[10px] font-mono font-bold text-[#67D6B2] shrink-0 mt-0.5">
-                      {numMatch[1]}.
-                    </span>
-                    <span className="flex-1">{renderInlineFormat(numMatch[2])}</span>
-                  </div>
-                );
-              }
-
-              // Check for blockquote
-              if (trimmed.startsWith("> ")) {
-                return (
-                  <div
-                    key={lIdx}
-                    className="border-l-2 border-[#67D6B2]/50 pl-2.5 py-0.5 text-[#A9B5B2] italic"
-                  >
-                    {renderInlineFormat(trimmed.slice(2))}
-                  </div>
-                );
-              }
-
-              return <p key={lIdx}>{renderInlineFormat(line)}</p>;
-            })}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// Inline formatting for **bold** and `inline code`
-function renderInlineFormat(text: string): React.ReactNode {
-  // Split by inline code first
-  const codeParts = text.split(/(`[^`]+`)/g);
-
-  return codeParts.map((part, i) => {
-    if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
-      return (
-        <code
-          key={i}
-          className="px-1.5 py-0.5 mx-0.5 rounded bg-[#151D1F] border border-[#202A2C] text-[#67D6B2] font-mono text-[11px]"
-        >
-          {part.slice(1, -1)}
-        </code>
-      );
-    }
-
-    // Parse bold text **bold**
-    const boldParts = part.split(/(\*\*[^*]+\*\*)/g);
-    return boldParts.map((bPart, bIdx) => {
-      if (bPart.startsWith("**") && bPart.endsWith("**") && bPart.length > 4) {
-        return (
-          <strong key={bIdx} className="font-semibold text-white">
-            {bPart.slice(2, -2)}
-          </strong>
-        );
-      }
-      return bPart;
-    });
-  });
+  task: TaskContext | null;
+  evaluationResult: EvaluationResult | null;
+  isEvaluating: boolean;
+  unlockedNudges: NudgeResponse[];
+  currentNudgeLevel: NudgeLevel;
+  isLoadingNudge: boolean;
+  onRequestNudge: (level: NudgeLevel) => void;
+  onReevaluate: () => void;
+  onNextTask?: () => void;
+  isLastTask?: boolean;
+  onSendChatMessage: (message: string) => Promise<void>;
+  chatMessages: MentorChatMessage[];
+  isChatLoading: boolean;
+  activeTab?: "task" | "nudges" | "chat" | "evaluation";
+  onTabChange?: (tab: "task" | "nudges" | "chat" | "evaluation") => void;
 }
 
 export default function AiMentor({
-  currentTask,
-  activeFilePath,
-  state,
-  onNudge,
-  onSend,
-  onClearHint,
-  onClearMessages,
-  userName = "Tanishq",
+  task,
+  evaluationResult,
+  isEvaluating,
+  unlockedNudges,
+  currentNudgeLevel,
+  isLoadingNudge,
+  onRequestNudge,
+  onReevaluate,
+  onNextTask,
+  isLastTask = false,
+  onSendChatMessage,
+  chatMessages,
+  isChatLoading,
+  activeTab = "task",
+  onTabChange,
 }: AiMentorProps) {
-  // Navigation tabs: "chat" or "hints"
-  const [activeTab, setActiveTab] = useState<"chat" | "hints">("chat");
+  const [tab, setTab] = useState<"task" | "nudges" | "chat" | "evaluation">(activeTab);
+  const [inputMessage, setInputMessage] = useState("");
+  const chatBottomRef = useRef<HTMLDivElement>(null);
 
-  // Chat messages
-  const messages = state.messages.map((message) => ({ ...message, timestamp: new Date(message.timestamp) }));
-  const [input, setInput] = useState("");
-  const isLoading = state.isThinking;
-  const isNudging = state.isThinking;
-  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
-
-  // Hints state
-  const [evalFailedExpanded, setEvalFailedExpanded] = useState(true);
-  const [whyWorksExpanded, setWhyWorksExpanded] = useState(false);
-  const hintLevel = state.hints.at(-1)?.level || 1;
-  const activeHint = state.activeAnnotation;
-  const evalResults = state.evaluation;
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const currentTab = onTabChange ? activeTab : tab;
+  const setResolvedTab = (newTab: "task" | "nudges" | "chat" | "evaluation") => {
+    setTab(newTab);
+    onTabChange?.(newTab);
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isLoading, isNudging, activeHint]);
-
-  const handleNeedNudge = async () => {
-    if (isNudging || !currentTask) return;
-    onNudge(); setActiveTab("hints");
-  };
-
-  const handleSend = async (messageText?: string) => {
-    const textToSend = messageText || input;
-    if (!textToSend.trim() || isLoading) return;
-
-    if (!messageText) setInput("");
-    onSend(textToSend.trim());
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+    if (currentTab === "chat") {
+      chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
+  }, [chatMessages, currentTab]);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputMessage.trim() || isChatLoading) return;
+    const msg = inputMessage.trim();
+    setInputMessage("");
+    await onSendChatMessage(msg);
   };
 
-  const handleCopyMessage = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedMessageId(id);
-    setTimeout(() => setCopiedMessageId(null), 2000);
+  const handleNextNudge = () => {
+    const nextLevel = Math.min(5, (unlockedNudges.length + 1)) as NudgeLevel;
+    onRequestNudge(nextLevel);
   };
-
-  const handleClearChat = () => {
-    onClearMessages();
-  };
-
-  const isEvalFailed = evalResults && !evalResults.passed;
-  const isHintActive = Boolean(activeHint && !activeHint.isError);
-  const activeFileName = activeFilePath ? activeFilePath.split("/").pop() : "No file selected";
-
-  // Suggested quick prompts when chat is fresh or idle
-  const suggestionPrompts = [
-    { label: "💡 Where do I start?", prompt: "Where should I start for this task? Give me a conceptual overview." },
-    { label: "🔍 Explain the relevant concept", prompt: "Which concept should I understand before implementing this task?" },
-    { label: "⚠️ Debug current error", prompt: "Can you explain the current error without giving me the direct code solution?" },
-    { label: "🎯 Review my approach", prompt: "How should I structure the route response to fulfill all evaluation criteria?" },
-  ];
 
   return (
-    <div className="w-full h-full flex flex-col bg-[#0D1214] text-[#F4F7F6] select-none border-l border-[#202A2C]">
-      {/* ── Top Header ── */}
-      <div className="h-14 px-4 border-b border-[#202A2C] bg-[#080C0D] flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          {/* Mint Sparkle Glyph Avatar */}
-          <div className="h-8 w-8 rounded-xl bg-[#67D6B2]/10 border border-[#67D6B2]/25 flex items-center justify-center text-[#67D6B2] shadow-sm">
-            <Sparkles className="h-4 w-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xs font-bold text-[#F4F7F6] tracking-tight">AI Mentor</h2>
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#67D6B2]/10 border border-[#67D6B2]/20 text-[9px] font-semibold text-[#67D6B2]">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#67D6B2] animate-pulse" />
-                Socratic
-              </span>
-            </div>
-            <p className="text-[10px] text-[#71807C] truncate max-w-[170px]">
-              Task {currentTask?.order || 1} · {activeFileName}
-            </p>
-          </div>
-        </div>
+    <div className="h-full flex flex-col bg-[#0D1214] border-l border-[#202A2C] overflow-hidden">
+      {/* Mentor Tab Navigation */}
+      <div className="bg-[#080C0D] border-b border-[#202A2C] px-2 flex items-center gap-1 select-none overflow-x-auto no-scrollbar">
+        <button
+          onClick={() => setResolvedTab("task")}
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors cursor-pointer shrink-0 ${
+            currentTab === "task"
+              ? "text-[#67D6B2] border-[#67D6B2]"
+              : "text-[#71807C] hover:text-[#A9B5B2] border-transparent"
+          }`}
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          <span>Task Spec</span>
+        </button>
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-1">
-          {messages.length > 0 && (
-            <button
-              onClick={handleClearChat}
-              className="p-1.5 text-[#71807C] hover:text-[#F4F7F6] hover:bg-[#151D1F] rounded-lg transition-colors cursor-pointer"
-              title="Reset conversation"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-            </button>
+        <button
+          onClick={() => setResolvedTab("nudges")}
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors cursor-pointer shrink-0 ${
+            currentTab === "nudges"
+              ? "text-[#E9C46A] border-[#E9C46A]"
+              : "text-[#71807C] hover:text-[#A9B5B2] border-transparent"
+          }`}
+        >
+          <Lightbulb className="w-3.5 h-3.5" />
+          <span>Nudges</span>
+          {unlockedNudges.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#E9C46A]/20 text-[#E9C46A] font-bold">
+              {unlockedNudges.length}/5
+            </span>
           )}
-          <button
-            className="p-1.5 text-[#71807C] hover:text-[#F4F7F6] hover:bg-[#151D1F] rounded-lg transition-colors cursor-pointer"
-            title="Mentor details"
-          >
-            <MoreVertical className="h-4 w-4" />
-          </button>
-        </div>
+        </button>
+
+        <button
+          onClick={() => setResolvedTab("chat")}
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors cursor-pointer shrink-0 ${
+            currentTab === "chat"
+              ? "text-[#76A8FF] border-[#76A8FF]"
+              : "text-[#71807C] hover:text-[#A9B5B2] border-transparent"
+          }`}
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+          <span>Socratic Chat</span>
+        </button>
+
+        <button
+          onClick={() => setResolvedTab("evaluation")}
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border-b-2 transition-colors cursor-pointer shrink-0 ${
+            currentTab === "evaluation"
+              ? "text-white border-white"
+              : "text-[#71807C] hover:text-[#A9B5B2] border-transparent"
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span>Evaluation</span>
+          {evaluationResult && (
+            <span
+              className={`w-2 h-2 rounded-full ${
+                evaluationResult.status === "pass" ? "bg-[#67D6B2]" : "bg-[#F06A6A]"
+              }`}
+            />
+          )}
+        </button>
       </div>
 
-      {/* ── Segmented Tab Switcher (Chat vs Hints) ── */}
-      <div className="px-3 py-2 border-b border-[#202A2C] bg-[#0A0F11] shrink-0">
-        <div className="flex items-center p-1 rounded-xl bg-[#11181A] border border-[#202A2C]">
-          <button
-            onClick={() => setActiveTab("chat")}
-            className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-              activeTab === "chat"
-                ? "bg-[#1A2427] text-[#67D6B2] shadow-sm border border-[#67D6B2]/20"
-                : "text-[#71807C] hover:text-[#A9B5B2]"
-            }`}
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            <span>Chat</span>
-            {messages.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-[#202A2C] text-[9px] font-mono text-[#A9B5B2]">
-                {messages.length}
-              </span>
-            )}
-          </button>
+      {/* Main Tab Content */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* TAB 1: TASK SPEC */}
+        {currentTab === "task" && task && (
+          <div className="space-y-4 text-xs">
+            {/* Goal Card */}
+            <div className="p-3.5 rounded-xl bg-gradient-to-br from-[#11181A] to-[#080C0D] border border-[#202A2C]">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Sparkles className="w-4 h-4 text-[#67D6B2]" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#67D6B2]">
+                  Task Goal
+                </span>
+              </div>
+              <p className="text-sm font-semibold text-white leading-snug">
+                {task.goal}
+              </p>
+            </div>
 
-          <button
-            onClick={() => setActiveTab("hints")}
-            className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer relative ${
-              activeTab === "hints"
-                ? "bg-[#1A2427] text-[#67D6B2] shadow-sm border border-[#67D6B2]/20"
-                : "text-[#71807C] hover:text-[#A9B5B2]"
-            }`}
-          >
-            <Lightbulb className="h-3.5 w-3.5" />
-            <span>Hints & Checks</span>
-            {isEvalFailed && (
-              <span className="h-2 w-2 rounded-full bg-[#F06A6A] animate-pulse" />
-            )}
-            {isHintActive && !isEvalFailed && (
-              <span className="px-1.5 py-0.2 rounded-full bg-[#E9C46A]/20 text-[9px] font-mono text-[#E9C46A]">
-                L{hintLevel}
-              </span>
-            )}
-          </button>
-        </div>
-      </div>
+            {/* Description */}
+            <div className="space-y-1.5">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#71807C]">
+                Description
+              </h4>
+              <p className="text-xs text-[#A9B5B2] leading-relaxed">
+                {task.description}
+              </p>
+            </div>
 
-      {/* ── Scrollable Body Area ── */}
-      <div className="flex-1 p-3.5 overflow-y-auto space-y-4 select-text font-sans scrollbar-thin">
-        {/* ========================================================================= */}
-        {/* ── TAB 1: CHAT VIEW ── */}
-        {/* ========================================================================= */}
-        {activeTab === "chat" && (
-          <>
-            {/* Quick Nudge Trigger Banner */}
-            <div className="p-3 rounded-xl bg-gradient-to-r from-[#11181A] to-[#151D1F] border border-[#202A2C] hover:border-[#67D6B2]/40 transition-all flex items-center justify-between gap-3 shadow-sm">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="h-7 w-7 rounded-lg bg-[#67D6B2]/10 border border-[#67D6B2]/30 flex items-center justify-center text-[#67D6B2] shrink-0">
-                  <Lightbulb className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-[#F4F7F6]">Need a nudge?</div>
-                  <div className="text-[10px] text-[#71807C] truncate">
-                    Step-by-step guidance without giving away code
-                  </div>
+            {/* Step-by-Step Instructions */}
+            {task.instructions && (
+              <div className="space-y-2 p-3.5 rounded-xl bg-[#11181A] border border-[#202A2C]">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#67D6B2] flex items-center gap-1.5">
+                  <Code2 className="w-3.5 h-3.5" />
+                  Implementation Guide
+                </h4>
+                <div className="text-xs text-[#F4F7F6] space-y-1.5 whitespace-pre-line leading-relaxed font-sans">
+                  {task.instructions}
                 </div>
               </div>
+            )}
+
+            {/* Target Files */}
+            <div className="space-y-1.5">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#71807C]">
+                Target Files
+              </h4>
+              <div className="flex flex-wrap gap-1.5">
+                {task.targetFiles.map((f) => (
+                  <span
+                    key={f}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#151D1F] border border-[#202A2C] font-mono text-xs text-[#67D6B2]"
+                  >
+                    <FileCode className="w-3 h-3" />
+                    {f}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Acceptance Criteria Checklist */}
+            <div className="space-y-2">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-[#71807C]">
+                Acceptance Criteria
+              </h4>
+              <div className="space-y-1.5">
+                {task.evaluationCriteria.map((criterion, idx) => {
+                  const critStatus = evaluationResult?.criteriaResults.find(
+                    (c) =>
+                      c.title.toLowerCase().includes(criterion.toLowerCase().slice(0, 15)) ||
+                      criterion.toLowerCase().includes(c.title.toLowerCase().slice(0, 15))
+                  );
+                  const isPassed = critStatus?.status === "pass";
+                  const isFailed = critStatus?.status === "fail";
+
+                  return (
+                    <div
+                      key={idx}
+                      className={`p-2.5 rounded-lg border flex items-start gap-2.5 transition-colors ${
+                        isPassed
+                          ? "bg-[#0D1614] border-[#67D6B2]/30 text-[#F4F7F6]"
+                          : isFailed
+                          ? "bg-[#180E10] border-[#F06A6A]/30 text-[#FCA5A5]"
+                          : "bg-[#11181A] border-[#202A2C] text-[#A9B5B2]"
+                      }`}
+                    >
+                      <div className="mt-0.5 shrink-0">
+                        {isPassed ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#67D6B2]" />
+                        ) : isFailed ? (
+                          <XCircle className="w-3.5 h-3.5 text-[#F06A6A]" />
+                        ) : (
+                          <div className="w-3.5 h-3.5 rounded-full border border-[#4B5754] flex items-center justify-center text-[9px] font-mono">
+                            {idx + 1}
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-xs leading-snug flex-1">
+                        {criterion}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: PROGRESSIVE NUDGES */}
+        {currentTab === "nudges" && (
+          <div className="space-y-4">
+            {/* Nudge Ladder Visual Progress */}
+            <div className="p-3.5 rounded-xl bg-[#11181A] border border-[#202A2C] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#E9C46A] flex items-center gap-1.5">
+                  <Lightbulb className="w-3.5 h-3.5" />
+                  Socratic Nudge Ladder
+                </span>
+                <span className="text-xs text-[#71807C]">
+                  Level {unlockedNudges.length} of 5
+                </span>
+              </div>
+
+              {/* Ladder Dots */}
+              <div className="grid grid-cols-5 gap-1.5">
+                {([1, 2, 3, 4, 5] as NudgeLevel[]).map((lvl) => {
+                  const isUnlocked = unlockedNudges.some((n) => n.level >= lvl);
+                  const isCurrent = unlockedNudges.length === lvl;
+                  return (
+                    <div
+                      key={lvl}
+                      className={`h-1.5 rounded-full transition-all ${
+                        isUnlocked
+                          ? "bg-[#E9C46A]"
+                          : "bg-[#202A2C]"
+                      } ${isCurrent ? "animate-pulse" : ""}`}
+                      title={`Level ${lvl}: ${NUDGE_LEVELS[lvl].name}`}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Request Next Level Button */}
+              {unlockedNudges.length < 5 ? (
+                <button
+                  onClick={handleNextNudge}
+                  disabled={isLoadingNudge}
+                  className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg font-semibold text-xs bg-gradient-to-r from-[#E9C46A] to-[#D4A373] text-[#080C0D] hover:opacity-90 shadow-md shadow-[#E9C46A]/10 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {isLoadingNudge ? (
+                    <>
+                      <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Thinking Socratic Nudge...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lightbulb className="w-3.5 h-3.5" />
+                      <span>
+                        Unlock Level {unlockedNudges.length + 1}:{" "}
+                        {NUDGE_LEVELS[(unlockedNudges.length + 1) as NudgeLevel]?.name}
+                      </span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <p className="text-[11px] text-center text-[#71807C] pt-1">
+                  All 5 progressive hint levels unlocked for this task.
+                </p>
+              )}
+            </div>
+
+            {/* Unlocked Nudges List */}
+            {unlockedNudges.length === 0 ? (
+              <div className="p-6 text-center rounded-xl bg-[#11181A]/50 border border-[#202A2C] text-[#71807C] space-y-2">
+                <Lightbulb className="w-8 h-8 text-[#202A2C] mx-auto" />
+                <p className="text-xs text-[#A9B5B2]">
+                  Stuck on this task?
+                </p>
+                <p className="text-[11px]">
+                  Request progressive Socratic hints. Level 1 starts with a conceptual orientation question to guide your reasoning.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {unlockedNudges.map((nudge, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3.5 rounded-xl bg-gradient-to-br from-[#11181A] to-[#0D1214] border border-[#E9C46A]/30 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#E9C46A]/15 text-[#E9C46A] border border-[#E9C46A]/30">
+                        Level {nudge.level}: {nudge.levelName}
+                      </span>
+                      {nudge.targetFile && (
+                        <span className="text-[10px] text-[#71807C] font-mono">
+                          {nudge.targetFile}
+                        </span>
+                      )}
+                    </div>
+
+                    <h4 className="text-xs font-bold text-white">
+                      {nudge.title}
+                    </h4>
+
+                    <p className="text-xs text-[#F4F7F6] leading-relaxed">
+                      {nudge.hint}
+                    </p>
+
+                    {nudge.pseudocode && (
+                      <div className="mt-2 p-2.5 rounded bg-[#080C0D] border border-[#202A2C] font-mono text-[11px] text-[#E9C46A] whitespace-pre-wrap">
+                        {nudge.pseudocode}
+                      </div>
+                    )}
+
+                    {nudge.codeSnippet && (
+                      <div className="mt-2 p-2.5 rounded bg-[#080C0D] border border-[#202A2C] font-mono text-[11px] text-[#67D6B2] whitespace-pre-wrap">
+                        {nudge.codeSnippet}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3: SOCRATIC CHAT */}
+        {currentTab === "chat" && (
+          <div className="h-full flex flex-col space-y-3">
+            {/* Messages */}
+            <div className="flex-1 space-y-3 min-h-[250px]">
+              {chatMessages.length === 0 ? (
+                <div className="p-6 text-center rounded-xl bg-[#11181A]/50 border border-[#202A2C] text-[#71807C] space-y-2">
+                  <MessageSquare className="w-8 h-8 text-[#202A2C] mx-auto" />
+                  <p className="text-xs text-[#A9B5B2]">
+                    Chat with your Socratic AI Mentor
+                  </p>
+                  <p className="text-[11px]">
+                    Ask about concepts, request debugging guidance, or clarify task requirements. Your mentor coaches your thinking and never dumps completed code solutions.
+                  </p>
+                </div>
+              ) : (
+                chatMessages.map((msg, i) => {
+                  const isUser = msg.role === "user";
+                  return (
+                    <div
+                      key={i}
+                      className={`flex flex-col ${
+                        isUser ? "items-end" : "items-start"
+                      }`}
+                    >
+                      <div
+                        className={`max-w-[85%] p-3 rounded-xl text-xs leading-relaxed ${
+                          isUser
+                            ? "bg-[#67D6B2]/15 text-white border border-[#67D6B2]/30 rounded-br-none"
+                            : "bg-[#151D1F] text-[#F4F7F6] border border-[#202A2C] rounded-bl-none"
+                        }`}
+                      >
+                        <div className="whitespace-pre-wrap font-sans">
+                          {msg.content}
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-[#71807C] mt-1 px-1">
+                        {isUser ? "You" : "Socratic AI Mentor"}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+              {isChatLoading && (
+                <div className="flex items-center gap-2 text-xs text-[#71807C] p-2 bg-[#11181A] rounded-lg border border-[#202A2C] animate-pulse">
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-[#67D6B2]" />
+                  <span>AI Mentor is thinking...</span>
+                </div>
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* Quick Prompts */}
+            <div className="flex flex-wrap gap-1.5 pt-2">
               <button
-                onClick={handleNeedNudge}
-                disabled={isNudging}
-                className="shrink-0 px-2.5 py-1.5 rounded-lg bg-[#67D6B2]/15 hover:bg-[#67D6B2] border border-[#67D6B2]/40 text-[#67D6B2] hover:text-[#080C0D] text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                type="button"
+                onClick={() => onSendChatMessage("What programming concept should I focus on for this task?")}
+                className="text-[10px] px-2 py-1 rounded bg-[#11181A] hover:bg-[#151D1F] border border-[#202A2C] text-[#A9B5B2] transition-colors cursor-pointer"
               >
-                {isNudging ? (
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                ) : (
-                  <>
-                    <span>Nudge</span>
-                    <ArrowRight className="h-3 w-3" />
-                  </>
-                )}
+                What concept is this?
+              </button>
+              <button
+                type="button"
+                onClick={() => onSendChatMessage("How do I structure the return value according to criteria?")}
+                className="text-[10px] px-2 py-1 rounded bg-[#11181A] hover:bg-[#151D1F] border border-[#202A2C] text-[#A9B5B2] transition-colors cursor-pointer"
+              >
+                Return value format?
+              </button>
+              <button
+                type="button"
+                onClick={() => onSendChatMessage("Help me reason through any edge cases for this step.")}
+                className="text-[10px] px-2 py-1 rounded bg-[#11181A] hover:bg-[#151D1F] border border-[#202A2C] text-[#A9B5B2] transition-colors cursor-pointer"
+              >
+                Edge cases?
               </button>
             </div>
 
-            {/* Empty State / Welcome Onboarding Card */}
-            {messages.length === 0 && (
-              <div className="space-y-4 pt-1">
-                <div className="p-4 rounded-2xl bg-[#11181A] border border-[#202A2C] space-y-3 text-left">
-                  <div className="flex items-center gap-2.5">
-                    <div className="h-7 w-7 rounded-full bg-[#E9C46A]/15 border border-[#E9C46A]/30 flex items-center justify-center text-[#E9C46A]">
-                      <Lightbulb className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-bold text-[#F4F7F6]">Hi {userName}!</h3>
-                      <p className="text-[10px] text-[#71807C]">Your personal engineering mentor</p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-[#A9B5B2] leading-relaxed">
-                    {isEvalFailed
-                      ? "Your current solution encountered errors during evaluation. Ask me to help diagnose the issue or switch to the Hints tab for guided steps."
-                      : `You're working on Task ${currentTask?.order || 1}: ${
-                          currentTask?.title || "your current task"
-                        }. Ask questions, debug concepts, or request directional nudges anytime.`}
-                  </p>
-
-                  <div className="p-2.5 rounded-xl bg-[#080C0D] border border-[#202A2C] text-[10px] text-[#71807C] flex items-center gap-2">
-                    <Compass className="h-3.5 w-3.5 text-[#67D6B2] shrink-0" />
-                    <span>
-                      Socratic rules: I guide your reasoning and point to line ranges, but won&apos;t write the final code.
-                    </span>
-                  </div>
-                </div>
-
-                {/* Quick Prompts Chips */}
-                <div className="space-y-2">
-                  <div className="text-[11px] font-semibold text-[#71807C] px-1">
-                    Suggested prompts:
-                  </div>
-                  <div className="grid grid-cols-1 gap-2">
-                    {suggestionPrompts.map((s, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => handleSend(s.prompt)}
-                        className="w-full text-left p-2.5 rounded-xl bg-[#11181A] hover:bg-[#151D1F] border border-[#202A2C] hover:border-[#67D6B2]/40 text-xs text-[#A9B5B2] hover:text-[#F4F7F6] transition-all cursor-pointer flex items-center justify-between group"
-                      >
-                        <span className="truncate pr-2">{s.label}</span>
-                        <ChevronRight className="h-3.5 w-3.5 text-[#71807C] group-hover:text-[#67D6B2] group-hover:translate-x-0.5 transition-all shrink-0" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Message Stream */}
-            {messages.map((msg) => {
-              const isUser = msg.role === "user";
-              return (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${isUser ? "items-end" : "items-start"} space-y-1.5`}
+            {/* Input Form */}
+            <form onSubmit={handleSendMessage} className="pt-1">
+              <div className="flex items-center gap-2 bg-[#11181A] border border-[#202A2C] focus-within:border-[#67D6B2] rounded-xl p-1.5">
+                <input
+                  type="text"
+                  placeholder="Ask a question or request guidance..."
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  disabled={isChatLoading}
+                  className="flex-1 bg-transparent px-2 text-xs text-white placeholder-[#71807C] outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={!inputMessage.trim() || isChatLoading}
+                  className="p-1.5 rounded-lg bg-[#67D6B2] text-[#080C0D] hover:opacity-90 transition-opacity disabled:opacity-30 cursor-pointer"
                 >
-                  <div className="flex items-center gap-2 text-[10px] text-[#71807C] px-1">
-                    <span className="font-medium text-[#A9B5B2]">
-                      {isUser ? "You" : "AI Mentor"}
-                    </span>
-                    <span>•</span>
-                    <span>
-                      {msg.timestamp.toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </div>
-
-                  <div
-                    className={`max-w-[95%] text-xs leading-relaxed rounded-2xl p-3.5 relative group shadow-sm ${
-                      isUser
-                        ? "bg-[#67D6B2]/15 border border-[#67D6B2]/35 text-[#F4F7F6] rounded-tr-none"
-                        : "bg-[#11181A] border border-[#202A2C] text-[#F4F7F6] rounded-tl-none"
-                    }`}
-                  >
-                    <MarkdownContent content={msg.content} />
-
-                    {/* Quick copy bubble button */}
-                    <button
-                      onClick={() => handleCopyMessage(msg.content, msg.id)}
-                      className="absolute top-2 right-2 p-1 rounded-md bg-[#151D1F]/80 text-[#71807C] hover:text-[#F4F7F6] opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
-                      title="Copy text"
-                    >
-                      {copiedMessageId === msg.id ? (
-                        <Check className="h-3 w-3 text-[#67D6B2]" />
-                      ) : (
-                        <Copy className="h-3 w-3" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Thinking / Reasoning state */}
-            {isLoading && (
-              <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-[#11181A] border border-[#202A2C] text-xs text-[#A9B5B2] animate-pulse">
-                <div className="h-5 w-5 rounded-full bg-[#67D6B2]/15 flex items-center justify-center text-[#67D6B2]">
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                </div>
-                <span>AI Mentor is reasoning...</span>
+                  <Send className="w-3.5 h-3.5" />
+                </button>
               </div>
-            )}
-          </>
+            </form>
+          </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* ── TAB 2: HINTS & DIAGNOSIS VIEW ── */}
-        {/* ========================================================================= */}
-        {activeTab === "hints" && (
-          <div className="space-y-4">
-            {/* 1. Evaluation Results / Error Breakdown (if tests failed) */}
-            {isEvalFailed && (
-              <div className="rounded-2xl bg-[#11181A] border border-[#F06A6A]/35 overflow-hidden shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => setEvalFailedExpanded((prev) => !prev)}
-                  className="w-full flex items-center justify-between p-3.5 text-left hover:bg-[#151D1F] transition-colors cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-xl bg-[#F06A6A]/15 border border-[#F06A6A]/30 flex items-center justify-center text-[#F06A6A] shrink-0">
-                      <XCircle className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-[#F06A6A] flex items-center gap-1.5">
-                        Evaluation Failed
-                      </div>
-                      <div className="text-[10px] text-[#A9B5B2]">
-                        0 / {evalResults?.criteriaStatus?.length || 4} criteria passed
-                      </div>
-                    </div>
-                  </div>
-
-                  {evalFailedExpanded ? (
-                    <ChevronUp className="h-4 w-4 text-[#71807C]" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4 text-[#71807C]" />
-                  )}
-                </button>
-
-                {evalFailedExpanded && (
-                  <div className="px-3.5 pb-3.5 pt-1 space-y-3 border-t border-[#202A2C] bg-[#0A0F11]/50">
-                    {(evalResults?.criteriaStatus || []).map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="p-2.5 rounded-xl bg-[#11181A] border border-[#202A2C] space-y-1.5"
-                      >
-                        <div className="flex items-start gap-2 text-xs font-medium text-[#F4F7F6]">
-                          <XCircle className="h-3.5 w-3.5 text-[#F06A6A] shrink-0 mt-0.5" />
-                          <span className="leading-snug">{item.title}</span>
-                        </div>
-                        {item.feedback && (
-                          <p className="text-[11px] text-[#71807C] pl-5 leading-relaxed bg-[#080C0D] p-2 rounded-lg border border-[#202A2C] font-mono">
-                            {item.feedback}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-
-                    <button
-                      onClick={handleNeedNudge}
-                      disabled={isNudging}
-                      className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl bg-[#67D6B2]/10 hover:bg-[#67D6B2] border border-[#67D6B2]/30 text-xs font-semibold text-[#67D6B2] hover:text-[#080C0D] transition-all cursor-pointer shadow-sm"
-                    >
-                      <Lightbulb className="h-3.5 w-3.5" />
-                      <span>Get Socratic Clue for These Errors</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 2. Progressive Socratic Clue Card */}
-            {isHintActive ? (
-              <div className="space-y-3.5">
-                {/* Level Progress Indicator */}
-                <div className="p-3 rounded-2xl bg-[#11181A] border border-[#202A2C] space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-[#F4F7F6] flex items-center gap-1.5">
-                      <Compass className="h-3.5 w-3.5 text-[#67D6B2]" />
-                      Progressive Clue
-                    </span>
-                    <span className="text-[11px] font-mono text-[#67D6B2] font-semibold">
-                      Level {hintLevel} of 3
-                    </span>
-                  </div>
-
-                  {/* 3 Step Pill Bar */}
-                  <div className="grid grid-cols-3 gap-1.5 pt-1">
-                    <div
-                      className={`h-1.5 rounded-full ${
-                        hintLevel >= 1 ? "bg-[#67D6B2]" : "bg-[#202A2C]"
-                      }`}
-                    />
-                    <div
-                      className={`h-1.5 rounded-full ${
-                        hintLevel >= 2 ? "bg-[#67D6B2]" : "bg-[#202A2C]"
-                      }`}
-                    />
-                    <div
-                      className={`h-1.5 rounded-full ${
-                        hintLevel >= 3 ? "bg-[#67D6B2]" : "bg-[#202A2C]"
-                      }`}
-                    />
-                  </div>
-
-                  {/* Target line & file indicator */}
-                  {activeHint && (
-                    <div className="flex items-center justify-between pt-1 text-[10px] text-[#71807C]">
-                      <span className="flex items-center gap-1 truncate max-w-[200px]">
-                        <FileCode className="h-3 w-3 text-[#67D6B2]" />
-                        {activeHint.targetFile}
-                      </span>
-                      <span className="font-mono bg-[#151D1F] px-1.5 py-0.5 rounded text-[#A9B5B2]">
-                        Line {activeHint.startLine}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Main Hint Content Card */}
-                <div className="p-4 rounded-2xl bg-[#11181A] border border-[#202A2C] space-y-3 shadow-md">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="h-6 w-6 rounded-lg bg-[#E9C46A]/15 border border-[#E9C46A]/30 flex items-center justify-center text-[#E9C46A]">
-                        <Lightbulb className="h-3.5 w-3.5" />
-                      </div>
-                      <h3 className="text-xs font-bold text-[#F4F7F6]">
-                        Mentor guidance — level {hintLevel}
-                      </h3>
-                    </div>
-                    {onClearHint && (
-                      <button
-                        onClick={onClearHint}
-                        className="text-[10px] text-[#71807C] hover:text-[#F4F7F6] underline cursor-pointer"
-                      >
-                        Dismiss
-                      </button>
-                    )}
-                  </div>
-
-                  <p className="text-xs text-[#A9B5B2] leading-relaxed">
-                    {activeHint?.hint}
-                  </p>
-
-                  {/* Accordion: "Why this works?" */}
-                  <div className="pt-2 border-t border-[#202A2C]">
-                    <button
-                      type="button"
-                      onClick={() => setWhyWorksExpanded((prev) => !prev)}
-                      className="flex items-center justify-between w-full text-left text-xs font-medium text-[#A9B5B2] hover:text-[#F4F7F6] transition-colors py-1 cursor-pointer"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <ChevronRight
-                          className={`w-3.5 h-3.5 text-[#67D6B2] transition-transform duration-200 ${
-                            whyWorksExpanded ? "rotate-90" : ""
-                          }`}
-                        />
-                        <span>Why this works? (Deep dive)</span>
-                      </div>
-                    </button>
-
-                    {whyWorksExpanded && (
-                      <div className="mt-2 p-3 rounded-xl bg-[#080C0D] border border-[#202A2C] text-[11px] text-[#A9B5B2] leading-relaxed select-text animate-in fade-in space-y-2">
-                        <p>This guidance is based on the current task, relevant files, and latest evaluation.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Need deeper guidance button */}
-                {hintLevel < 3 ? (
-                  <button
-                    onClick={handleNeedNudge}
-                    disabled={isNudging}
-                    className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-[#11181A] hover:bg-[#151D1F] border border-[#202A2C] hover:border-[#67D6B2]/50 text-xs font-semibold text-[#67D6B2] transition-all cursor-pointer shadow-sm group"
-                  >
-                    <span>Request Level {hintLevel + 1} Clue</span>
-                    <ArrowRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
-                  </button>
-                ) : (
-                  <div className="p-3 rounded-xl bg-[#11181A] border border-[#202A2C] text-center space-y-2">
-                    <p className="text-xs text-[#A9B5B2]">
-                      You&apos;ve reached the maximum hint specificity.
-                    </p>
-                    <button
-                      onClick={() => {
-                        setActiveTab("chat");
-                        handleSend("I'm still having trouble understanding this step. Can you break down the concept further?");
-                      }}
-                      className="text-xs text-[#67D6B2] hover:underline font-semibold cursor-pointer"
-                    >
-                      Ask follow-up question in Chat →
-                    </button>
-                  </div>
-                )}
-              </div>
+        {/* TAB 4: EVALUATION */}
+        {currentTab === "evaluation" && (
+          <div>
+            {evaluationResult ? (
+              <EvaluationResultView
+                result={evaluationResult}
+                isEvaluating={isEvaluating}
+                onReevaluate={onReevaluate}
+                onRequestNudge={() => {
+                  setResolvedTab("nudges");
+                  if (unlockedNudges.length === 0) {
+                    onRequestNudge(1);
+                  }
+                }}
+                onNextTask={onNextTask}
+                isLastTask={isLastTask}
+              />
             ) : (
-              /* If no active hint */
-              <div className="p-6 rounded-2xl bg-[#11181A] border border-[#202A2C] text-center space-y-3">
-                <div className="h-10 w-10 mx-auto rounded-2xl bg-[#67D6B2]/10 border border-[#67D6B2]/20 flex items-center justify-center text-[#67D6B2]">
-                  <Lightbulb className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-bold text-[#F4F7F6]">No active hints</h3>
-                  <p className="text-[11px] text-[#71807C] max-w-xs mx-auto mt-1 leading-relaxed">
-                    Whenever you&apos;re unsure of where to look or why a test fails, click below to receive a progressive Socratic clue.
-                  </p>
-                </div>
+              <div className="p-8 text-center rounded-xl bg-[#11181A]/50 border border-[#202A2C] text-[#71807C] space-y-3">
+                <Layers className="w-8 h-8 text-[#202A2C] mx-auto" />
+                <h4 className="text-xs font-semibold text-white">
+                  No Evaluation Run Yet
+                </h4>
+                <p className="text-[11px] max-w-xs mx-auto">
+                  Click &ldquo;Run Evaluation&rdquo; in the top bar to statically analyze your code against the task acceptance criteria.
+                </p>
                 <button
-                  onClick={handleNeedNudge}
-                  disabled={isNudging}
-                  className="px-4 py-2 rounded-xl bg-[#67D6B2] text-[#080C0D] text-xs font-bold hover:bg-[#82CDBD] transition-all cursor-pointer shadow-sm"
+                  onClick={onReevaluate}
+                  disabled={isEvaluating}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg font-semibold text-xs bg-[#67D6B2] text-[#080C0D] hover:opacity-90 cursor-pointer disabled:opacity-50"
                 >
-                  {isNudging ? "Generating..." : "Need a nudge?"}
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Run Static Evaluation
                 </button>
               </div>
             )}
-
-            {/* Step-by-Step Diagnostic Checklist */}
-            <div className="p-3.5 rounded-2xl bg-[#080C0D] border border-[#202A2C] space-y-2.5">
-              <div className="text-xs font-semibold text-[#A9B5B2] flex items-center gap-1.5">
-                <Layers className="h-3.5 w-3.5 text-[#67D6B2]" />
-                Recommended debugging checklist:
-              </div>
-              <div className="space-y-2 text-xs text-[#71807C]">
-                <div className="flex items-start gap-2.5">
-                  <span className="h-4 w-4 rounded-full bg-[#151D1F] text-[#67D6B2] flex items-center justify-center text-[10px] font-mono shrink-0 mt-0.5">
-                    1
-                  </span>
-                  <span>Inspect the highlighted error line in your active file</span>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <span className="h-4 w-4 rounded-full bg-[#151D1F] text-[#67D6B2] flex items-center justify-center text-[10px] font-mono shrink-0 mt-0.5">
-                    2
-                  </span>
-                  <span>Compare the implementation with the failed criteria</span>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <span className="h-4 w-4 rounded-full bg-[#151D1F] text-[#67D6B2] flex items-center justify-center text-[10px] font-mono shrink-0 mt-0.5">
-                    3
-                  </span>
-                  <span>Ensure async operations handle Promise resolution with await</span>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <span className="h-4 w-4 rounded-full bg-[#151D1F] text-[#67D6B2] flex items-center justify-center text-[10px] font-mono shrink-0 mt-0.5">
-                    4
-                  </span>
-                  <span>Run &apos;Evaluate Task&apos; again to verify all criteria pass</span>
-                </div>
-              </div>
-            </div>
           </div>
         )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* ── Bottom Chat Input Area ── */}
-      <div className="p-3 border-t border-[#202A2C] bg-[#080C0D] shrink-0 space-y-2">
-        <div className="relative flex flex-col bg-[#11181A] border border-[#202A2C] focus-within:border-[#67D6B2]/60 rounded-2xl p-2 transition-colors shadow-sm">
-          {/* Active file context tag */}
-          <div className="flex items-center justify-between px-1.5 pb-1 text-[10px] text-[#71807C] border-b border-[#202A2C]/60 mb-1">
-            <span className="flex items-center gap-1 font-mono text-[#A9B5B2]">
-              <FileCode className="h-3 w-3 text-[#67D6B2]" />
-              {activeFileName}
-            </span>
-            <span className="text-[9px]">Shift+Enter for newline</span>
-          </div>
-
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask anything or request guidance..."
-              rows={1}
-              disabled={isLoading}
-              className="flex-1 bg-transparent text-xs text-[#F4F7F6] placeholder-[#71807C] focus:outline-none resize-none py-1 px-1.5 max-h-28 overflow-y-auto scrollbar-thin"
-            />
-            <button
-              onClick={() => handleSend()}
-              disabled={!input.trim() || isLoading}
-              className={`p-2 rounded-xl transition-all cursor-pointer shrink-0 ${
-                input.trim() && !isLoading
-                  ? "bg-[#67D6B2] hover:bg-[#82CDBD] text-[#080C0D] shadow-sm shadow-[#67D6B2]/20"
-                  : "bg-[#151D1F] text-[#4B5754] cursor-not-allowed"
-              }`}
-              title="Send message (Enter)"
-            >
-              <Send className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-
-        <p className="text-[9px] text-[#71807C] text-center tracking-tight">
-          Socratic Mentor · Promotes deep thinking, does not generate ready-made solutions
-        </p>
       </div>
     </div>
   );
