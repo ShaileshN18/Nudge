@@ -1,60 +1,66 @@
 import React from "react";
+import Link from "next/link";
 
 interface NudgeLogoProps {
   className?: string;
-  iconOnly?: boolean;
-  size?: "sm" | "md" | "lg" | "xl";
-  lightText?: boolean;
-}
-
-export function NudgeLogoMark({ size = 28, className = "" }: { size?: number; className?: string }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 36 36"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={`shrink-0 ${className}`}
-    >
-      <rect x="2" y="20" width="10" height="10" rx="3" fill="#5EEAD4" />
-      <rect x="13" y="11" width="10" height="10" rx="3" fill="#4EE4A5" />
-      <rect x="24" y="2" width="10" height="10" rx="3" fill="#34D399" />
-    </svg>
-  );
+  size?: "sm" | "md" | "lg";
+  withLink?: boolean;
 }
 
 export default function NudgeLogo({
   className = "",
-  iconOnly = false,
   size = "md",
-  lightText = true,
+  withLink = true,
 }: NudgeLogoProps) {
-  const sizeMap = {
-    sm: { icon: 22, text: "text-lg", gap: "gap-2" },
-    md: { icon: 28, text: "text-xl", gap: "gap-2.5" },
-    lg: { icon: 34, text: "text-2xl", gap: "gap-3" },
-    xl: { icon: 42, text: "text-3xl", gap: "gap-3.5" },
+  const sizeClasses = {
+    sm: "text-lg gap-1.5",
+    md: "text-xl gap-2",
+    lg: "text-2xl gap-2.5",
   };
 
-  const current = sizeMap[size] || sizeMap.md;
+  const iconSizes = {
+    sm: "w-5 h-5",
+    md: "w-6 h-6",
+    lg: "w-8 h-8",
+  };
 
-  return (
-    <div className={`inline-flex items-center ${current.gap} select-none ${className}`}>
-      <div className="relative flex items-center justify-center">
-        <NudgeLogoMark size={current.icon} />
-      </div>
-
-      {!iconOnly && (
-        <span
-          className={`font-extrabold tracking-[-0.035em] leading-none ${current.text} ${
-            lightText ? "text-white" : "text-[#081214]"
-          }`}
-          style={{ fontFamily: "'Inter', system-ui, -apple-system, sans-serif" }}
+  const content = (
+    <div
+      className={`inline-flex items-center font-bold tracking-tight text-white select-none group ${sizeClasses[size]} ${className}`}
+    >
+      <div className={`relative flex items-center justify-center rounded-lg bg-gradient-to-br from-[#67D6B2] to-[#10B981] p-1 shadow-lg shadow-[#67D6B2]/20 transition-transform duration-200 group-hover:scale-105 ${iconSizes[size]}`}>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#080C0D"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="w-full h-full"
         >
-          nudge
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+        </svg>
+        <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#67D6B2] opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-[#67D6B2]"></span>
         </span>
-      )}
+      </div>
+      <span className="bg-gradient-to-r from-white via-[#F4F7F6] to-[#A9B5B2] bg-clip-text text-transparent">
+        Nudge
+      </span>
+      <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-[#1A2428] text-[#67D6B2] border border-[#67D6B2]/30 tracking-wider">
+        AI
+      </span>
     </div>
   );
+
+  if (withLink) {
+    return (
+      <Link href="/" className="inline-flex focus:outline-none">
+        {content}
+      </Link>
+    );
+  }
+
+  return content;
 }
