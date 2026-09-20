@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Nudge — Learn by Building. Get Nudged When You're Stuck.",
+  title: "Nudge — AI-Guided Coding Environment",
   description:
-    "The AI-guided developer learning platform where you learn by building real projects without tutorials or copy-pasting. In-browser WebContainer workspace with progressive AI hints.",
+    "Learn programming by building real projects. Write code, get stuck, receive progressive AI nudges, and advance through static evaluation.",
 };
 
 export default function RootLayout({
@@ -14,9 +15,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark scroll-smooth">
-      <body className="antialiased min-h-screen bg-[#070a0e] text-slate-100 selection:bg-[#5eead4]/30 selection:text-white">
+      <head>
+        <Script src="https://js.puter.com/v2/" strategy="beforeInteractive" />
+      </head>
+      <body className="antialiased min-h-screen bg-[#080C0D] text-[#F4F7F6] selection:bg-[#67D6B2]/30 selection:text-white">
         {children}
       </body>
     </html>
   );
 }
+
