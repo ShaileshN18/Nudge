@@ -6,16 +6,15 @@ import {
   Lightbulb,
   HelpCircle,
   Compass,
-  AlertTriangle,
   CheckCircle2,
   XCircle,
-  Terminal,
+  FileCode,
   Code2,
-  ArrowRight,
   ShieldCheck,
   Zap,
+  Terminal,
 } from "lucide-react";
-import { NudgeLogoMark } from "../NudgeLogo";
+import NudgeLogo from "../NudgeLogo";
 
 interface Scenario {
   id: string;
@@ -23,10 +22,12 @@ interface Scenario {
   title: string;
   codeSnippet: string;
   file: string;
-  testFailReason: string;
-  level1Observation: string;
-  level2SocraticQuestion: string;
-  level3ActionableHint: string;
+  evalFailReason: string;
+  level1Spark: string;
+  level2Pointer: string;
+  level3Diagnostic: string;
+  level4Algorithm: string;
+  level5CodeHint: string;
   solutionOutcome: string;
 }
 
@@ -34,97 +35,151 @@ const scenarios: Scenario[] = [
   {
     id: "auth-hashing",
     category: "Backend Security",
-    title: "Preventing Plaintext Password Storage",
+    title: "Salted Password Hashing in User Model",
     file: "src/models/User.js",
     codeSnippet: `// Learner's initial implementation
-async function registerUser(email, password) {
-  const existing = await User.findOne({ email });
-  if (existing) throw new Error("Email in use");
+function hashPassword(password) {
+  // Bug: Storing plaintext password directly!
+  return password;
+}
 
-  // Bug: Saving raw password to database!
-  const user = await User.create({
-    email,
-    passwordHash: password 
-  });
-  return user;
+function comparePassword(password, storedHash) {
+  return password === storedHash;
 }`,
-    testFailReason: "Assertion Failed: User record in database should not match plaintext password",
-    level1Observation:
-      "Your registration test fails assertion #4. Inspect line 8: you are persisting the raw password directly into the database without cryptographic hashing.",
-    level2SocraticQuestion:
-      "Why is saving raw passwords risky even in a secured DB? What one-way cryptographic hashing function with salt rounds should be applied first?",
-    level3ActionableHint:
-      "Use bcryptjs with 10 salt rounds: await bcrypt.hash(password, 10). Then store the computed hash string in passwordHash.",
-    solutionOutcome: "User passwords securely hashed with bcrypt. 100% test pass rate.",
+    evalFailReason: "Criterion Failed: hashPassword must generate a unique cryptographic salt and return formatted salt:hash string",
+    level1Spark:
+      "Why is plain string storage or unsalted hashing vulnerable to rainbow table attacks? What purpose does generating a random salt serve before hashing?",
+    level2Pointer:
+      "Inspect `src/models/User.js` inside `hashPassword` and `comparePassword`. You need Node's built-in `crypto` module.",
+    level3Diagnostic:
+      "Your `hashPassword` function currently returns the plain password string. It must generate a 16-byte random salt using `crypto.randomBytes(16).toString('hex')` and hash with `crypto.pbkdf2Sync`.",
+    level4Algorithm:
+      "1. Generate salt: crypto.randomBytes(16).toString('hex')\n2. Hash password: crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex')\n3. Return `${salt}:${hash}`\n4. In comparePassword, split stored string by ':' and recalculate hash with the extracted salt.",
+    level5CodeHint:
+      "const salt = crypto.randomBytes(16).toString('hex');\nconst hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');\nreturn `${salt}:${hash}`;",
+    solutionOutcome: "Cryptographic PBKDF2 salt-based hashing implemented. All acceptance criteria verified statically.",
   },
   {
-    id: "state-mutation",
-    category: "Fullstack / React",
-    title: "Safe State Updates in React 19",
-    file: "src/components/TodoList.jsx",
+    id: "express-jwt-middleware",
+    category: "API & Express",
+    title: "Bearer Token Authentication Middleware",
+    file: "src/middleware/auth.js",
     codeSnippet: `// Learner's implementation
-function handleToggle(id) {
-  // Bug: Mutating state directly causes re-render bugs
-  const item = todos.find(t => t.id === id);
-  item.completed = !item.completed;
-  setTodos(todos);
+function authMiddleware(req, res, next) {
+  // Bug: Not extracting Bearer header or attaching req.user
+  next();
 }`,
-    testFailReason: "Assertion Failed: Component did not re-render when item status updated",
-    level1Observation:
-      "React relies on reference equality to trigger re-renders. Modifying item.completed mutates the existing array in-place.",
-    level2SocraticQuestion:
-      "If todos keeps the same memory reference, how can React detect that anything changed? How can you create a shallow copy with the updated item?",
-    level3ActionableHint:
-      "Use todos.map(t => t.id === id ? { ...t, completed: !t.completed } : t) to produce a new array reference for setTodos.",
-    solutionOutcome: "State immutability preserved. React renders instantly without stale closures.",
+    evalFailReason: "Criterion Failed: Must reject requests missing Bearer authorization header with 401 Unauthorized",
+    level1Spark:
+      "How do REST APIs authenticate stateless HTTP requests? Where does the client pass their JWT access token in standard HTTP requests?",
+    level2Pointer:
+      "Open `src/middleware/auth.js`. Inspect how `req.headers['authorization']` is read and validated before calling `next()`.",
+    level3Diagnostic:
+      "Currently the middleware calls `next()` unconditionally. If the `Authorization` header is missing or does not start with `Bearer `, you must return HTTP 401 Unauthorized immediately.",
+    level4Algorithm:
+      "1. Extract authHeader from req.headers['authorization']\n2. Check if authHeader starts with 'Bearer '\n3. If missing or invalid format, return res.status(401).json({ error: '...' })\n4. Extract token string and verify with verifyToken(token)\n5. Attach payload to req.user and call next()",
+    level5CodeHint:
+      "const token = authHeader.split(' ')[1];\nconst decoded = verifyToken(token);\nreq.user = decoded;\nnext();",
+    solutionOutcome: "Private API endpoints secured with Bearer JWT verification and 401 status guards.",
   },
   {
-    id: "mongo-race-condition",
-    category: "Database & Express",
-    title: "Atomic Upvote Counter Without Race Conditions",
-    file: "src/routes/feedback.js",
+    id: "mongo-atomic-upvote",
+    category: "Fullstack / DB",
+    title: "Atomic Upvote Counter in Feedback Board",
+    file: "backend/src/feedback.js",
     codeSnippet: `// Learner's implementation
 router.post("/:id/upvote", async (req, res) => {
-  const item = await Feedback.findById(req.params.id);
-  // Bug: Read-modify-write causes lost updates under concurrent load
-  item.upvotes = item.upvotes + 1;
-  await item.save();
-  res.json(item);
+  // Incomplete handler
+  res.status(501).json({ message: "Not implemented" });
 });`,
-    testFailReason: "Concurrency Test Failed: 50 parallel upvotes resulted in only 32 registered counts",
-    level1Observation:
-      "Multiple concurrent requests are fetching the same initial upvote count before writing back, causing lost updates.",
-    level2SocraticQuestion:
-      "How can MongoDB modify the field directly on the server without first pulling the document into memory?",
-    level3ActionableHint:
-      "Use Mongoose's atomic operator: Feedback.findByIdAndUpdate(req.params.id, { $inc: { upvotes: 1 } }, { new: true }).",
-    solutionOutcome: "Atomic $inc handles concurrent bursts with zero lost writes.",
+    evalFailReason: "Criterion Failed: POST /api/feedback/:id/upvote must increment votes field and return 200 with updated document",
+    level1Spark:
+      "When incrementing a counter on a document, what Mongoose query method allows updating the record directly in the database?",
+    level2Pointer:
+      "Look at `backend/src/feedback.js` at the `/:id/upvote` route handler. Extract `req.params.id`.",
+    level3Diagnostic:
+      "The endpoint currently responds with status 501. It must locate the feedback item by ID, increment the `votes` counter, handle 404 if not found, and respond with status 200.",
+    level4Algorithm:
+      "1. Extract id from req.params.id\n2. Use Feedback.findByIdAndUpdate(id, { $inc: { votes: 1 } }, { new: true })\n3. If item is null, return res.status(404).json({ error: 'Item not found' })\n4. Return res.status(200).json(updatedItem)",
+    level5CodeHint:
+      "const item = await Feedback.findByIdAndUpdate(req.params.id, { $inc: { votes: 1 } });\nif (!item) return res.status(404).json({ error: 'Not found' });\nreturn res.status(200).json(item);",
+    solutionOutcome: "Atomic $inc upvote route handler verified statically with 404 error handling.",
   },
 ];
 
 export default function AiMentorSimulator() {
   const [activeScenarioId, setActiveScenarioId] = useState<string>(scenarios[0].id);
-  const [activeHintLevel, setActiveHintLevel] = useState<1 | 2 | 3>(1);
+  const [activeLevel, setActiveLevel] = useState<1 | 2 | 3 | 4 | 5>(1);
 
   const scenario = scenarios.find((s) => s.id === activeScenarioId) || scenarios[0];
 
+  const levelNames = {
+    1: "Conceptual Spark",
+    2: "Location Pointer",
+    3: "Diagnostic Clarity",
+    4: "Algorithmic Outline",
+    5: "Targeted Code Hint",
+  };
+
+  const getLevelContent = () => {
+    switch (activeLevel) {
+      case 1:
+        return {
+          title: "Level 1: Conceptual Spark",
+          text: scenario.level1Spark,
+          badge: "Socratic Orientation",
+          sub: "Nudge asks thought-provoking questions to help you formulate the correct mental model.",
+        };
+      case 2:
+        return {
+          title: "Level 2: Location Pointer",
+          text: scenario.level2Pointer,
+          badge: "Scope & Target Area",
+          sub: "Pinpoints the exact file, model, or route handler without leaking the solution.",
+        };
+      case 3:
+        return {
+          title: "Level 3: Diagnostic Clarity",
+          text: scenario.level3Diagnostic,
+          badge: "Error Diagnosis",
+          sub: "Contrasts what your code currently does against the task acceptance criteria.",
+        };
+      case 4:
+        return {
+          title: "Level 4: Algorithmic Outline",
+          text: scenario.level4Algorithm,
+          badge: "Step-by-Step Blueprint",
+          sub: "Provides a structured pseudocode sequence for you to implement.",
+        };
+      case 5:
+        return {
+          title: "Level 5: Targeted Code Hint",
+          text: scenario.level5CodeHint,
+          badge: "Syntax Pattern",
+          sub: "A focused 1-3 line code example targeting only the specific blocked API call.",
+        };
+    }
+  };
+
+  const currentLevelData = getLevelContent();
+
   return (
-    <div className="w-full max-w-6xl mx-auto rounded-3xl bg-gradient-to-b from-[#0e141c] to-[#090d13] border border-[#1b2533] p-6 sm:p-10 shadow-2xl relative overflow-hidden">
+    <div className="w-full max-w-6xl mx-auto rounded-3xl bg-gradient-to-b from-[#0D1214] to-[#080C0D] border border-[#202A2C] p-6 sm:p-10 shadow-2xl relative overflow-hidden">
       {/* Background Glow */}
-      <div className="absolute -top-32 -right-32 w-80 h-80 bg-[#5eead4]/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -top-32 -right-32 w-80 h-80 bg-[#67D6B2]/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8 border-b border-[#17202c]">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8 border-b border-[#202A2C]">
         <div className="space-y-3 max-w-2xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#12222a] border border-[#23424d] text-[#5eead4] text-xs font-semibold">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#1A2428] border border-[#67D6B2]/30 text-[#67D6B2] text-xs font-semibold">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Interactive AI Mentor Simulation</span>
+            <span>5-Level Socratic Nudge Simulator</span>
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
-            See How the Nudge AI Mentor Helps You <span className="text-[#5eead4]">Think</span>
+            An AI Mentor That Coaches Your <span className="text-[#67D6B2]">Thinking</span>
           </h2>
-          <p className="text-slate-400 text-sm sm:text-base leading-relaxed">
-            Other tools dump code that robs you of the learning experience. Nudge observes your terminal errors and code structure, then dispenses progressive hints like an experienced senior engineer sitting beside you.
+          <p className="text-[#A9B5B2] text-sm sm:text-base leading-relaxed">
+            Unlike ChatGPT or Copilot that write solutions for you, Nudge provides progressive disclosure hints (Level 1 to Level 5) that preserve your problem-solving flow.
           </p>
         </div>
 
@@ -135,12 +190,12 @@ export default function AiMentorSimulator() {
               key={s.id}
               onClick={() => {
                 setActiveScenarioId(s.id);
-                setActiveHintLevel(1);
+                setActiveLevel(1);
               }}
-              className={`px-3.5 py-2 rounded-xl text-xs font-medium transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 activeScenarioId === s.id
-                  ? "bg-[#5eead4] text-[#061414] font-bold shadow-lg shadow-[#5eead4]/20"
-                  : "bg-[#121924] text-slate-400 hover:text-white border border-[#1b2533]"
+                  ? "bg-[#67D6B2] text-[#080C0D] shadow-lg shadow-[#67D6B2]/20"
+                  : "bg-[#151D1F] text-[#A9B5B2] hover:text-white border border-[#202A2C]"
               }`}
             >
               {s.category}
@@ -151,175 +206,127 @@ export default function AiMentorSimulator() {
 
       {/* Interactive Arena */}
       <div className="mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Column: Code Editor & Terminal Test Failure (7 cols) */}
+        {/* Left Column: Code View & Static Evaluation Report */}
         <div className="lg:col-span-7 space-y-4">
-          <div className="rounded-2xl bg-[#090d14] border border-[#1b2533] overflow-hidden shadow-xl">
+          <div className="rounded-2xl bg-[#080C0D] border border-[#202A2C] overflow-hidden shadow-xl">
             {/* Editor File Tab */}
-            <div className="flex items-center justify-between px-4 py-2.5 bg-[#0b1017] border-b border-[#17202c] text-xs font-mono text-slate-400">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-[#0D1214] border-b border-[#202A2C] text-xs font-mono text-[#A9B5B2]">
               <div className="flex items-center gap-2">
-                <Code2 className="w-4 h-4 text-[#5eead4]" />
-                <span className="text-slate-200 font-semibold">{scenario.file}</span>
-                <span className="text-slate-500">• {scenario.title}</span>
+                <Code2 className="w-4 h-4 text-[#67D6B2]" />
+                <span className="text-white font-semibold">{scenario.file}</span>
+                <span className="text-[#71807C] hidden sm:inline">• {scenario.title}</span>
               </div>
-              <span className="text-[11px] px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-sans font-semibold">
-                Test Failing
+              <span className="text-[10px] px-2 py-0.5 rounded bg-[#F06A6A]/15 text-[#F06A6A] border border-[#F06A6A]/30 font-sans font-semibold">
+                Needs Revision
               </span>
             </div>
 
             {/* Code Body */}
-            <div className="p-4 font-mono text-xs sm:text-[13px] leading-6 text-slate-300 overflow-x-auto bg-[#070a10]">
+            <div className="p-4 font-mono text-xs sm:text-[13px] leading-6 text-[#F4F7F6] overflow-x-auto bg-[#080C0D]">
               <pre>
                 <code>{scenario.codeSnippet}</code>
               </pre>
             </div>
 
-            {/* Terminal Runner Output */}
-            <div className="border-t border-[#1a232f] bg-[#05080c] p-3.5 font-mono text-xs space-y-1.5">
-              <div className="flex items-center gap-2 text-slate-500 text-[11px]">
-                <Terminal className="w-3.5 h-3.5 text-slate-400" />
-                <span>WebContainer Automated Test Assertion:</span>
+            {/* Static Evaluation Report Bar */}
+            <div className="border-t border-[#202A2C] bg-[#11181A] p-3.5 font-mono text-xs space-y-1.5">
+              <div className="flex items-center gap-2 text-[#71807C] text-[11px]">
+                <FileCode className="w-3.5 h-3.5 text-[#67D6B2]" />
+                <span>Static Evaluation Engine Result:</span>
               </div>
-              <p className="text-rose-400 font-medium flex items-center gap-2">
-                <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                <span>{scenario.testFailReason}</span>
+              <p className="text-[#FCA5A5] font-medium flex items-center gap-2">
+                <XCircle className="w-4 h-4 text-[#F06A6A] shrink-0" />
+                <span>{scenario.evalFailReason}</span>
               </p>
             </div>
           </div>
 
           {/* Quick Comparison Bar */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            <div className="p-3 rounded-xl bg-rose-950/20 border border-rose-900/30 text-xs text-slate-400 space-y-1">
-              <div className="flex items-center gap-1.5 text-rose-400 font-semibold">
+            <div className="p-3.5 rounded-xl bg-[#180E10] border border-[#F06A6A]/20 text-xs text-[#A9B5B2] space-y-1">
+              <div className="flex items-center gap-1.5 text-[#F06A6A] font-semibold">
                 <XCircle className="w-3.5 h-3.5" />
-                <span>ChatGPT / Copilot Approach</span>
+                <span>Code-Generator Assistant</span>
               </div>
-              <p className="text-slate-400">
-                Rewrites all the code for you. You copy-paste, retain 0% conceptual mastery, and get stuck on the very next feature.
+              <p className="text-[#71807C]">
+                Rewrites all the code for you. You copy-paste without understanding and fail future technical interviews.
               </p>
             </div>
 
-            <div className="p-3 rounded-xl bg-[#5eead4]/10 border border-[#5eead4]/30 text-xs text-slate-300 space-y-1">
-              <div className="flex items-center gap-1.5 text-[#5eead4] font-semibold">
+            <div className="p-3.5 rounded-xl bg-[#0D1614] border border-[#67D6B2]/30 text-xs text-[#F4F7F6] space-y-1">
+              <div className="flex items-center gap-1.5 text-[#67D6B2] font-semibold">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>The Nudge Progressive Approach</span>
+                <span>The Nudge Progressive Method</span>
               </div>
-              <p className="text-slate-400">
-                Pinpoints the exact mental hurdle, poses the right question, and trains your engineering instinct so you retain knowledge forever.
+              <p className="text-[#A9B5B2]">
+                Guides your thinking through progressive levels, training your problem-solving instinct so you own the knowledge.
               </p>
             </div>
           </div>
         </div>
 
-        {/* Right Column: Progressive Hint Ladder (5 cols) */}
+        {/* Right Column: 5-Level Nudge Ladder Simulator */}
         <div className="lg:col-span-5 space-y-4">
-          <div className="p-5 sm:p-6 rounded-2xl bg-[#0c131d] border border-[#202e40] space-y-6 shadow-xl">
+          <div className="p-5 sm:p-6 rounded-2xl bg-[#0D1214] border border-[#202A2C] space-y-5 shadow-xl">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-[#182332] pb-4">
-              <div className="flex items-center gap-2.5">
-                <NudgeLogoMark size={22} />
+            <div className="flex items-center justify-between border-b border-[#202A2C] pb-4">
+              <div className="flex items-center gap-2">
+                <Lightbulb className="w-5 h-5 text-[#E9C46A]" />
                 <div>
-                  <h3 className="text-sm font-bold text-white">Nudge AI Mentor</h3>
-                  <span className="text-[11px] text-[#5eead4] font-mono">Progressive Socratic Engine</span>
+                  <h3 className="text-sm font-bold text-white">Socratic Nudge Ladder</h3>
+                  <span className="text-[11px] text-[#67D6B2] font-mono">Progressive Hint Disclosure</span>
                 </div>
               </div>
-              <span className="text-xs font-mono text-slate-400 bg-[#141e2b] px-2 py-0.5 rounded border border-[#1e2c3e]">
-                Tier {activeHintLevel} of 3
+              <span className="text-xs font-mono text-[#A9B5B2] bg-[#151D1F] px-2 py-0.5 rounded border border-[#202A2C]">
+                Level {activeLevel} of 5
               </span>
             </div>
 
-            {/* Level Selector Tabs */}
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                onClick={() => setActiveHintLevel(1)}
-                className={`py-2 px-2.5 rounded-xl text-xs font-semibold flex flex-col items-center gap-1 transition-all ${
-                  activeHintLevel === 1
-                    ? "bg-[#5eead4] text-[#061414] shadow-md shadow-[#5eead4]/25"
-                    : "bg-[#141f2c] text-slate-400 hover:text-slate-200 border border-[#1b293a]"
-                }`}
-              >
-                <Lightbulb className="w-3.5 h-3.5" />
-                <span>Level 1: Observe</span>
-              </button>
-
-              <button
-                onClick={() => setActiveHintLevel(2)}
-                className={`py-2 px-2.5 rounded-xl text-xs font-semibold flex flex-col items-center gap-1 transition-all ${
-                  activeHintLevel === 2
-                    ? "bg-[#5eead4] text-[#061414] shadow-md shadow-[#5eead4]/25"
-                    : "bg-[#141f2c] text-slate-400 hover:text-slate-200 border border-[#1b293a]"
-                }`}
-              >
-                <HelpCircle className="w-3.5 h-3.5" />
-                <span>Level 2: Socratic</span>
-              </button>
-
-              <button
-                onClick={() => setActiveHintLevel(3)}
-                className={`py-2 px-2.5 rounded-xl text-xs font-semibold flex flex-col items-center gap-1 transition-all ${
-                  activeHintLevel === 3
-                    ? "bg-[#5eead4] text-[#061414] shadow-md shadow-[#5eead4]/25"
-                    : "bg-[#141f2c] text-slate-400 hover:text-slate-200 border border-[#1b293a]"
-                }`}
-              >
-                <Compass className="w-3.5 h-3.5" />
-                <span>Level 3: Direct</span>
-              </button>
+            {/* Level Selector Buttons (1 to 5) */}
+            <div className="grid grid-cols-5 gap-1.5">
+              {([1, 2, 3, 4, 5] as const).map((lvl) => (
+                <button
+                  key={lvl}
+                  onClick={() => setActiveLevel(lvl)}
+                  className={`py-2 px-1 rounded-xl text-xs font-semibold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                    activeLevel === lvl
+                      ? "bg-[#E9C46A] text-[#080C0D] shadow-md shadow-[#E9C46A]/20 font-bold"
+                      : "bg-[#151D1F] text-[#71807C] hover:text-white border border-[#202A2C]"
+                  }`}
+                >
+                  <span className="text-[11px]">L{lvl}</span>
+                </button>
+              ))}
             </div>
 
             {/* Current Hint Card */}
-            <div className="p-4 rounded-xl bg-[#101824] border border-[#1c2a3d] space-y-3 min-h-[160px] flex flex-col justify-center animate-in fade-in duration-300">
-              {activeHintLevel === 1 && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-bold text-[#5eead4] uppercase tracking-wider">
-                    <Lightbulb className="w-4 h-4" />
-                    <span>Level 1: Contextual Observation</span>
-                  </div>
-                  <p className="text-sm text-slate-200 leading-relaxed font-sans">
-                    {scenario.level1Observation}
-                  </p>
-                  <p className="text-xs text-slate-400 pt-1 italic">
-                    Nudge highlights what went wrong without touching your code or giving the answer away.
-                  </p>
-                </div>
-              )}
+            <div className="p-4 rounded-xl bg-[#11181A] border border-[#E9C46A]/30 space-y-3 min-h-[180px] flex flex-col justify-center animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-[#E9C46A]/15 text-[#E9C46A] border border-[#E9C46A]/30">
+                  {currentLevelData.badge}
+                </span>
+                <span className="text-xs text-[#71807C]">{levelNames[activeLevel]}</span>
+              </div>
 
-              {activeHintLevel === 2 && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-bold text-[#38bdf8] uppercase tracking-wider">
-                    <HelpCircle className="w-4 h-4" />
-                    <span>Level 2: Socratic Inquiry</span>
-                  </div>
-                  <p className="text-sm text-slate-200 leading-relaxed font-sans">
-                    "{scenario.level2SocraticQuestion}"
-                  </p>
-                  <p className="text-xs text-slate-400 pt-1 italic">
-                    Prompts you to reflect on core engineering principles so the solution clicks in your head.
-                  </p>
-                </div>
-              )}
+              <h4 className="text-xs font-bold text-white">
+                {currentLevelData.title}
+              </h4>
 
-              {activeHintLevel === 3 && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-bold text-amber-300 uppercase tracking-wider">
-                    <Compass className="w-4 h-4" />
-                    <span>Level 3: Actionable Direction</span>
-                  </div>
-                  <p className="text-sm text-slate-200 leading-relaxed font-sans">
-                    {scenario.level3ActionableHint}
-                  </p>
-                  <p className="text-xs text-slate-400 pt-1 italic">
-                    Points to the specific library method or architecture pattern while you still write the actual implementation.
-                  </p>
-                </div>
-              )}
+              <div className="text-xs text-[#F4F7F6] leading-relaxed whitespace-pre-line font-sans">
+                {currentLevelData.text}
+              </div>
+
+              <p className="text-[11px] text-[#71807C] italic pt-1 border-t border-white/5">
+                {currentLevelData.sub}
+              </p>
             </div>
 
             {/* Target Outcome */}
-            <div className="p-3.5 rounded-xl bg-[#091018] border border-[#192534] flex items-center gap-3">
-              <ShieldCheck className="w-5 h-5 text-[#5eead4] shrink-0" />
-              <div className="text-xs text-slate-300">
-                <span className="font-semibold text-white block">Learning Retained:</span>
-                <span className="text-slate-400">{scenario.solutionOutcome}</span>
+            <div className="p-3 rounded-xl bg-[#080C0D] border border-[#202A2C] flex items-center gap-3">
+              <ShieldCheck className="w-5 h-5 text-[#67D6B2] shrink-0" />
+              <div className="text-xs text-[#A9B5B2]">
+                <span className="font-semibold text-white block">Learning Mastery:</span>
+                <span>{scenario.solutionOutcome}</span>
               </div>
             </div>
           </div>
