@@ -221,7 +221,7 @@ export default function AiMentor({
               </h4>
               <div className="space-y-1.5">
                 {task.evaluationCriteria.map((criterion, idx) => {
-                  const critStatus = evaluationResult?.criteriaResults.find(
+                  const critStatus = evaluationResult?.criteriaResults?.find(
                     (c) =>
                       c.title.toLowerCase().includes(criterion.toLowerCase().slice(0, 15)) ||
                       criterion.toLowerCase().includes(c.title.toLowerCase().slice(0, 15))

@@ -31,9 +31,10 @@ export default function EvaluationResultView({
   onNextTask,
   isLastTask = false,
 }: EvaluationResultViewProps) {
-  const isPass = result.status === "pass";
-  const passCount = result.criteriaResults.filter((c) => c.status === "pass").length;
-  const totalCount = result.criteriaResults.length;
+  const isPass = result.status === "pass" || result.passed === true;
+  const criteriaList = result.criteriaResults || [];
+  const passCount = criteriaList.filter((c) => c.status === "pass" || c.passed === true).length;
+  const totalCount = criteriaList.length;
 
   return (
     <div className="space-y-4">
@@ -163,8 +164,8 @@ export default function EvaluationResultView({
         </h4>
 
         <div className="space-y-2">
-          {result.criteriaResults.map((criterion, idx) => {
-            const passed = criterion.status === "pass";
+          {criteriaList.map((criterion, idx) => {
+            const passed = criterion.status === "pass" || criterion.passed === true;
             return (
               <div
                 key={idx}
