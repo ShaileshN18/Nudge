@@ -5,12 +5,15 @@ export interface CriterionResult {
   status: EvaluationStatus;
   evidence?: string;
   feedback?: string;
+  passed?: boolean;
 }
 
 export interface EvaluationResult {
-  status: EvaluationStatus;
-  score: number;
-  criteriaResults: CriterionResult[];
+  status?: EvaluationStatus;
+  passed?: boolean;
+  score?: number;
+  criteriaResults?: CriterionResult[];
+  criteriaStatus?: { title: string; passed: boolean; feedback?: string }[];
   overallFeedback: string;
   bugs?: string[];
   missingRequirements?: string[];
@@ -79,6 +82,45 @@ export interface FileSnapshot {
   content: string;
 }
 
+export interface ProjectFileContent {
+  path: string;
+  content: string;
+}
+
+export interface TaskItem {
+  order: number;
+  title: string;
+  description: string;
+  instructions?: string;
+  goal: string;
+  targetFiles: string[];
+  evaluationCriteria: string[];
+  concepts?: string[];
+  difficulty?: "beginner" | "intermediate" | "advanced";
+}
+
+export interface TaskDefinition {
+  id?: string;
+  _id?: string;
+  order: number;
+  title: string;
+  description: string;
+  instructions?: string;
+  goal: string;
+  targetFiles: string[];
+  evaluationCriteria: string[];
+  concepts?: string[];
+  difficulty?: "beginner" | "intermediate" | "advanced";
+}
+
+export interface MentorAnnotation {
+  targetFile: string;
+  startLine: number;
+  endLine: number;
+  hint: string;
+  concept?: string;
+}
+
 export interface TaskContext {
   id?: string;
   order: number;
@@ -91,4 +133,39 @@ export interface TaskContext {
   evaluationCriteria: string[];
   concepts?: string[];
   difficulty?: string;
+}
+
+export interface HintRecord {
+  id: string;
+  level: NudgeLevel;
+  concept: string;
+  targetFile: string;
+  startLine: number;
+  endLine: number;
+  text: string;
+  timestamp: string;
+}
+
+export interface MentorMessage {
+  id?: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp?: string;
+}
+
+export type MentorInteractionType = "nudge" | "chat" | "debug" | "explain";
+
+export interface MentorContext {
+  task: TaskDefinition;
+  activeFile?: ProjectFileContent;
+  relevantFiles: ProjectFileContent[];
+  evaluation: EvaluationResult | null;
+  previousHints: HintRecord[];
+  conversation: MentorMessage[];
+}
+
+export interface MentorResponse {
+  type: MentorInteractionType;
+  message: string;
+  hint?: HintRecord;
 }
